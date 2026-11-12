@@ -1,0 +1,275 @@
+# fb.tray 系统托盘
+
+`fb.tray` 控制整个应用共用的托盘图标、通知、托盘相关的窗口行为，以及原生或由 WebView 绘制的右键菜单。
+
+`create()` / `setIcon()` 的顶层 `icon` 只接受裸 Base64 编码的 `.ico`
+文件字节，不带 `data:` 或 `base64:` 前缀。PNG、JPEG、SVG、Data URL 或
+无效 Base64 会回退到 foobar2000 主图标。`TrayMenuItem.icon` 是当前不渲染
+的保留字段；WebView 菜单项图标请使用 `iconSvg`。
+
+## appendMenuItems(items, position?)
+
+签名：`fb.tray.appendMenuItems(items: TrayMenuItem[], position?: TrayMenuPosition): Promise<TrayAppendMenuItemsResponse>`
+
+把 `items` 追加到 `position` 指定的分区，省略时为 `'top'`。
+
+```javascript
+const result = await fb.tray.appendMenuItems([{ id: 'settings', label: '设置' }]);
+```
+
+## clearMenuItems(position?)
+
+签名：`fb.tray.clearMenuItems(position?: TrayMenuPosition): Promise<TrayClearMenuItemsResponse>`
+
+清空 `position` 指定的分区；省略时清空全部分区。
+
+```javascript
+const result = await fb.tray.clearMenuItems();
+```
+
+## create(opts?)
+
+签名：`fb.tray.create(opts?: { icon?: string | null; tooltip?: string }): Promise<TrayCreateResponse>`
+
+创建托盘图标，保留 `setClickAction` 已设置的点击动作。`opts.icon` 是初始图标（格式见页首），`opts.tooltip` 是提示文字。
+
+```javascript
+const result = await fb.tray.create({ tooltip: 'foobar2000' });
+```
+
+## destroy()
+
+签名：`fb.tray.destroy(): Promise<TrayDestroyResponse>`
+
+移除托盘图标，取消待处理点击，并将点击动作重置为 `event`。
+
+```javascript
+const result = await fb.tray.destroy();
+```
+
+## getMenuItems()
+
+签名：`fb.tray.getMenuItems(): Promise<TrayGetMenuItemsResponse>`
+
+按 `top -> playback -> bottom` 顺序返回展平后的用户自定义菜单项，不含运行时注入的播放与系统项。
+
+```javascript
+const result = await fb.tray.getMenuItems();
+```
+
+## isVisible()
+
+签名：`fb.tray.isVisible(): Promise<TrayIsVisibleResponse>`
+
+返回托盘图标当前是否存在。
+
+```javascript
+const result = await fb.tray.isVisible();
+```
+
+## removeMenuItems(ids)
+
+签名：`fb.tray.removeMenuItems(ids: string[]): Promise<TrayRemoveMenuItemsResponse>`
+
+从全部分区移除 `ids` 列出的菜单项，`removed` 是实际移除的条数。
+
+```javascript
+const result = await fb.tray.removeMenuItems(['settings']);
+```
+
+## setCloseToTray(enabled)
+
+签名：`fb.tray.setCloseToTray(enabled: boolean): Promise<TraySetCloseToTrayResponse>`
+
+`enabled` 为 `true` 时，关闭窗口改为隐藏到托盘而不退出。
+
+```javascript
+const result = await fb.tray.setCloseToTray(true);
+```
+
+## setContextMenu(items, config?)
+
+签名：`fb.tray.setContextMenu(items: TrayMenuItem[], config?: TrayMenuConfig): Promise<TraySetContextMenuResponse>`
+
+替换 `config` 所指分区的菜单项，其他分区不变。`config` 另含渲染器、布局、样式与行为选项。
+
+```javascript
+const result = await fb.tray.setContextMenu([{ id: 'settings', label: '设置' }]);
+```
+
+## setIcon(icon?)
+
+签名：`fb.tray.setIcon(icon?: string | null): Promise<TraySetIconResponse>`
+
+更换托盘图标，`icon` 的格式见页首；省略或传 `null` 时使用 foobar2000 主图标。
+
+```javascript
+const result = await fb.tray.setIcon();
+```
+
+## setMenuItemState(id, state)
+
+签名：`fb.tray.setMenuItemState(id: string, state: { checked?: boolean; enabled?: boolean }): Promise<TraySetMenuItemStateResponse>`
+
+在全部分区里递归查找 `id`，`state` 至少给一个字段。成功时 `found` 为 `true`；找不到该 id 时失败，`code` 为 `'NOT_FOUND'`。原生菜单在下次打开时反映变化。
+
+```javascript
+const result = await fb.tray.setMenuItemState('settings', { enabled: false });
+```
+
+## setMenuZones(zones, config?)
+
+签名：`fb.tray.setMenuZones(zones: Omit<TraySetMenuZonesParams, 'config'>, config?: TrayMenuConfig): Promise<TraySetMenuZonesResponse>`
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `zones` | `{ top?, playback?, bottom? }` | 是 | 各区的菜单项；没给出的区清空 |
+| `config` | `TrayMenuConfig` | 否 | 渲染器、布局、样式与行为选项；其中的 `customPosition` 对这次调用无效 |
+
+一次替换三个区，所以中途打开的菜单不会只显示一半更新，快速连发两次时留下的是后一次。有菜单项被拒绝或超出资源上限时什么都不改，`config` 也不改。
+
+```javascript
+await fb.tray.setMenuZones({
+    top: [{ id: 'settings', label: '设置' }],
+    bottom: [{ id: 'about', label: '关于' }],
+});
+```
+
+## setMinimizeToTray(enabled)
+
+签名：`fb.tray.setMinimizeToTray(enabled: boolean): Promise<TraySetMinimizeToTrayResponse>`
+
+`enabled` 为 `true` 时，最小化改为隐藏到托盘而不留在任务栏。
+
+```javascript
+const result = await fb.tray.setMinimizeToTray(true);
+```
+
+## setTooltip(tooltip)
+
+签名：`fb.tray.setTooltip(tooltip: string): Promise<TraySetTooltipResponse>`
+
+设置托盘提示文字，最多 128 个字符。
+
+```javascript
+const result = await fb.tray.setTooltip('foobar2000');
+```
+
+## showBalloon(opts)
+
+签名：`fb.tray.showBalloon(opts: { title: string; message: string; icon?: TrayShowBalloonParams['icon'] }): Promise<TrayShowBalloonResponse>`
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `opts.title` | `string` | 是 | 通知标题 |
+| `opts.message` | `string` | 是 | 通知正文 |
+| `opts.icon` | `string` | 否 | `'info'`（默认）、`'warning'` 或 `'error'` |
+
+```javascript
+await fb.tray.showBalloon({
+  title: '播放',
+  message: '播放列表已经结束。',
+  icon: 'info',
+});
+```
+
+## 布局模式（`layoutMode`）
+
+`TrayMenuConfig.layoutMode` **默认为 `'flat'`**。不做任何配置时，WebView 托盘菜单保持原有的直接子元素 DOM（`#menu > .fb-item` / `.fb-sep`），已有的结构选择器不用改。
+
+### flat（默认）——无需迁移 DOM
+
+```javascript
+await fb.tray.setContextMenu(items, {
+  render: 'webview',
+  // 省略 layoutMode 即为 'flat'
+  css: `
+    #menu { display: flex; flex-direction: column; gap: 2px; }
+    .fb-item[data-zone="playback"] { opacity: 0.95; }
+  `,
+});
+```
+
+### zones（按需启用）——top / playback / bottom 三个容器
+
+```javascript
+const ver = await fb.config.getVersionInfo();
+if (ver.success === false) throw new Error(ver.error);
+const plugin = ver?.plugin?.version; // 启用 zones 前先探测版本
+// zones 自 1.10.0 起提供；需兼容旧版时先探测运行时版本
+await fb.tray.setContextMenu(items, {
+  render: 'webview',
+  layoutMode: 'zones',
+  css: `
+    .fb-zone[data-zone="top"] { display: flex; flex-direction: column; }
+    .fb-zone[data-zone="playback"] { display: grid; gap: 4px; }
+    .fb-zone[data-zone="bottom"] { display: flex; flex-direction: column; }
+    .fb-item[data-item-id="volume"] { padding-inline: 12px; }
+  `,
+});
+```
+
+### 兼容性说明
+
+- **原生菜单**（`render: 'native'`）忽略 `layoutMode`。
+- **旧版运行时**会忽略这个不认识的键（不会崩溃），但也不会生成 `.fb-zone` 包装层。
+- **`menu.show` / `fb.menu.popup`** 始终用原有的直接子元素 DOM，不会继承托盘菜单的 zones。
+- 稳定的样式挂载点：`.fb-menu[data-depth]`、`.fb-zone[data-zone]`、`.fb-item[data-item-id|data-kind|data-depth|data-zone]`。优先用它们，不要用 `:nth-child()`。
+- `data-item-token` 是单次弹出内部使用的身份标识，**不是**对外的 CSS 契约。
+- 这是一项按需启用的能力，不等于承诺“完全兼容”历史主题用过的每一个选择器。
+
+## 滑块方向与可访问性
+
+`TrayMenuItem.orientation` **只对滑块生效**（`'horizontal' | 'vertical'`），省略时按横向处理。SDK 原样透传这个字段，**不会**替你补默认值。
+
+### 横向 / 纵向示例
+
+```javascript
+// 横向（默认）——旧版运行时和原生菜单遇到不认识的 orientation 也不会出错
+await fb.tray.setContextMenu([
+  { id: 'vol', type: 'slider', label: 'Volume', min: 0, max: 100, value: 40 },
+], { render: 'webview' });
+
+// 纵向——先探测插件版本，不要硬编码一个假的最低版本号
+const res = await fb.config.getVersionInfo();
+if (res.success === false) throw new Error(res.error);
+const { plugin } = res;
+await fb.tray.setContextMenu([
+  {
+    id: 'vol',
+    type: 'slider',
+    label: 'Volume',
+    min: 0,
+    max: 100,
+    value: 40,
+    orientation: 'vertical',
+  },
+], { render: 'webview' });
+```
+
+### 键盘 / ARIA / 减弱动效
+
+- 导航态：roving `tabindex` + 真实行焦点；Up/Down/Home/End 移动；Enter/Space 激活；子菜单 Right/Enter 展开并聚焦，Left 关闭并还原焦点，Escape 逐层退出。
+- 编辑态（评分 / 滑块 / 分段控件）：Enter 或 Right 进入，焦点落到内部控件——`.fb-rating-control`、`.fb-slider-control`，或当前选中的 `.fb-seg-btn`，三者都带 `data-fb-focusable="1"`；Escape/Enter 退回该行。只有这三个元素会拿到真实 DOM 焦点，浏览器的默认焦点环（`:focus-visible`）也画在它们身上。默认样式表与受保护样式表都不给这个焦点环写样式；`cssReplace` 模式下请针对这三个选择器设置或重置它，而不是针对 `.fb-item`。
+- 在评分 / 滑块 / 分段控件行上滚动鼠标滚轮可调值（向上滚 = 增大），步长与方向和方向键一致。该行必须处于启用状态，滑块还必须不是常量滑块。当**另一行**正处于编辑态时，滚轮不生效，菜单照常滚动。
+- 纵向滑块：最小值在下、最大值在上；Up/Right 增大，Down/Left 减小；Home 取最小值，End 取最大值。
+- `checked: false` 仍表示这是一个可勾选项（`menuitemcheckbox`）；普通菜单项直接不写 `checked`。
+- 默认入退场动画遵循 `prefers-reduced-motion: reduce`（禁用 transform/transition），自定义 CSS 也应照做。这部分**不属于**受保护 CSS，也不改变 hide protocol 与 `closeAnimationMs`。
+- 原生后端忽略 `orientation`（退化为分步子菜单）。旧版运行时会忽略这个键，保持横向交互。
+
+## setClickAction(action)
+
+签名：`fb.tray.setClickAction(action: TraySetClickActionParams['action']): Promise<TraySetClickActionResponse>`
+
+默认 `event` 保留旧单击／双击事件。`toggleMainWindow` 按原生窗口状态显隐独立主窗口：可见且未最小化时隐藏，否则显示、恢复并请求聚焦。双击只切换一次，保留普通／最大化状态、位置尺寸与置顶设置；页面深挂起时同样可以执行。系统仍可能拒绝前台请求。
+
+这是进程级设置，可先于 `create()` 调用；多个页面最后一次成功设置生效。重复设置也取消待处理点击。重复创建和 Explorer 重建保留模式，`destroy()` 恢复为 `event`。面板模式返回 `PANEL_MODE_UNSUPPORTED`。
+
+原生模式不发送旧 `tray:click`／`tray:doubleClick`，右键菜单事件不变。初始化时先移除旧点击处理中的窗口命令；已在页面队列中的事件无法撤回，不应在用户操作图标时切换模式。
+
+通过 `fb.system.listApis()` 中是否包含 `tray.setClickAction` 检查宿主能力。
+
+```typescript
+await fb.tray.setClickAction('toggleMainWindow');
+await fb.tray.create();
+```

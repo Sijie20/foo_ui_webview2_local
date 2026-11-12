@@ -1,0 +1,625 @@
+// test_menu_node_contract.cpp - L1 tests for the unified menu node model
+// (docs/menu-subsystem/SPEC.md §9.2). Drives the SAME header the API layer
+// includes, not a reimplementation, so a regression in product code fails here.
+//
+// Coverage in this file is deliberately EXHAUSTIVE over flag bit combinations
+// rather than sampled: the pre-refactor defects were all "a state bit was never
+// read", which sampling does not reliably catch.
+#include "pch.h"
+#include "api/MainMenuIdentity.h"
+#include "api/MenuNodeContract.h"
+
+using namespace menu_node;
+
+namespace {
+
+// Every combination of the four main-menu display bits.
+constexpr std::uint32_t kMainMenuAllBits =
+    mainmenu_flag::kDisabled | mainmenu_flag::kChecked |
+    mainmenu_flag::kRadioChecked | mainmenu_flag::kDefaultHidden;
+
+// Every combination of the four context-menu display bits.
+constexpr std::uint32_t kContextAllBits =
+    contextmenu_flag::kChecked | contextmenu_flag::kDisabled |
+    contextmenu_flag::kGrayed | contextmenu_flag::kRadioChecked;
+
+}  // namespace
+
+// ===========================================================================
+// SPEC §9.2 case 1 - flag -> boolean normalization, exhaustive
+// ===========================================================================
+
+TEST(MenuNodeContractTest, MainMenuNormalizationIsExhaustivelyCorrect) {
+    for (std::uint32_t bits = 0; bits <= kMainMenuAllBits; ++bits) {
+        const State s = NormalizeMainMenu(bits, /*displayReturnedTrue=*/true);
+
+        EXPECT_EQ(s.flags, bits) << "raw flags must survive untranslated";
+        EXPECT_EQ(s.enabled, (bits & mainmenu_flag::kDisabled) == 0);
+        EXPECT_EQ(s.radioChecked, (bits & mainmenu_flag::kRadioChecked) != 0);
+        // radiochecked implies checked so a radio item never reports unchecked.
+        const bool expectChecked = (bits & (mainmenu_flag::kChecked |
+                                            mainmenu_flag::kRadioChecked)) != 0;
+        EXPECT_EQ(s.checked, expectChecked) << "bits=" << bits;
+        EXPECT_EQ(s.hidden, (bits & mainmenu_flag::kDefaultHidden) != 0);
+    }
+}
+
+TEST(MenuNodeContractTest, ContextMenuNormalizationIsExhaustivelyCorrect) {
+    for (std::uint32_t bits = 0; bits <= kContextAllBits; ++bits) {
+        const State s = NormalizeContextMenu(bits, /*displayReturnedTrue=*/true,
+                                             ContextEnabledState::DefaultOn);
+
+        EXPECT_EQ(s.flags, bits);
+        // DISABLED and GRAYED are independent: components set either or both.
+        const bool expectEnabled =
+            (bits & (contextmenu_flag::kDisabled | contextmenu_flag::kGrayed)) == 0;
+        EXPECT_EQ(s.enabled, expectEnabled) << "bits=" << bits;
+        EXPECT_EQ(s.radioChecked, (bits & contextmenu_flag::kRadioChecked) != 0);
+        const bool expectChecked = (bits & (contextmenu_flag::kChecked |
+                                            contextmenu_flag::kRadioChecked)) != 0;
+        EXPECT_EQ(s.checked, expectChecked) << "bits=" << bits;
+        EXPECT_FALSE(s.hidden);
+    }
+}
+
+TEST(MenuNodeContractTest, GrayedOnlyStillCountsAsDisabled) {
+    // Regression guard: testing against MFS_DISABLED (a union) or against
+    // FLAG_DISABLED alone would wrongly report these as enabled.
+    EXPECT_FALSE(NormalizeContextMenu(contextmenu_flag::kGrayed, true,
+                                      ContextEnabledState::DefaultOn).enabled);
+    EXPECT_FALSE(NormalizeHmenu(hmenu_state::kGrayed).enabled);
+}
+
+// The v1 HMENU tier is the ONLY tier available on localized hosts, so its state
+// decoding is exercised exhaustively rather than sampled.
+TEST(MenuNodeContractTest, HmenuNormalizationIsExhaustivelyCorrect) {
+    constexpr std::uint32_t kAllBits =
+        hmenu_state::kGrayed | hmenu_state::kDisabled | hmenu_state::kChecked;
+
+    for (std::uint32_t bits = 0; bits <= kAllBits; ++bits) {
+        const State s = NormalizeHmenu(bits);
+
+        EXPECT_EQ(s.flags, bits) << "raw Win32 state must survive untranslated";
+        const bool expectEnabled =
+            (bits & (hmenu_state::kDisabled | hmenu_state::kGrayed)) == 0;
+        EXPECT_EQ(s.enabled, expectEnabled) << "bits=" << bits;
+        EXPECT_EQ(s.checked, (bits & hmenu_state::kChecked) != 0) << "bits=" << bits;
+        // MENUITEMINFO state bits cannot express radio-check, so claiming one
+        // would be fabricated state.
+        EXPECT_FALSE(s.radioChecked) << "bits=" << bits;
+        // An item absent from a generated HMENU is simply never walked, so this
+        // tier has no hidden state to recover.
+        EXPECT_FALSE(s.hidden) << "bits=" << bits;
+        EXPECT_TRUE(s.stateKnown) << "bits=" << bits;
+    }
+}
+
+TEST(MenuNodeContractTest, HmenuDisabledUnionIsDecodedBitwise) {
+    // MFS_DISABLED == MFS_GRAYED == MF_GRAYED|MF_DISABLED == 0x3. Both single
+    // bits and the union must all read as disabled.
+    EXPECT_FALSE(NormalizeHmenu(hmenu_state::kDisabled).enabled);
+    EXPECT_FALSE(NormalizeHmenu(hmenu_state::kGrayed).enabled);
+    EXPECT_FALSE(
+        NormalizeHmenu(hmenu_state::kGrayed | hmenu_state::kDisabled).enabled);
+    EXPECT_TRUE(NormalizeHmenu(0).enabled);
+    // A checked-but-enabled item must not be mistaken for disabled.
+    EXPECT_TRUE(NormalizeHmenu(hmenu_state::kChecked).enabled);
+    EXPECT_TRUE(NormalizeHmenu(hmenu_state::kChecked).checked);
+}
+
+// ===========================================================================
+// SPEC §9.2 case 2 - get_display() returning false means hidden, not dropped
+// ===========================================================================
+
+TEST(MenuNodeContractTest, MainMenuDisplayReturningFalseMeansHidden) {
+    const State s = NormalizeMainMenu(0, /*displayReturnedTrue=*/false);
+
+    EXPECT_TRUE(s.hidden);
+    // Still a usable command otherwise - it is shortcut-only, not broken.
+    EXPECT_TRUE(s.enabled);
+}
+
+TEST(MenuNodeContractTest, ContextDisplayReturningFalseMeansHidden) {
+    EXPECT_TRUE(NormalizeContextMenu(0, /*displayReturnedTrue=*/false,
+                                     ContextEnabledState::DefaultOn).hidden);
+}
+
+// ===========================================================================
+// SPEC §9.2 case 3 - FORCE_OFF is hidden AND distinguishable from
+//                    defaultHidden through the retained raw flags
+// ===========================================================================
+
+TEST(MenuNodeContractTest, ForceOffIsHidden) {
+    const State s = NormalizeContextMenu(0, true, ContextEnabledState::ForceOff);
+    EXPECT_TRUE(s.hidden) << "FORCE_OFF is shortcut-list-only per the SDK";
+}
+
+TEST(MenuNodeContractTest, DefaultOffIsNotHiddenByItself) {
+    // DEFAULT_OFF only means "not shown by default"; the user may enable it,
+    // so it must not be filtered out the way FORCE_OFF is.
+    EXPECT_FALSE(NormalizeContextMenu(0, true,
+                                      ContextEnabledState::DefaultOff).hidden);
+}
+
+TEST(MenuNodeContractTest, ForceOffAndDefaultHiddenRemainDistinguishable) {
+    const State forceOff =
+        NormalizeContextMenu(0, true, ContextEnabledState::ForceOff);
+    const State defaultHidden =
+        NormalizeMainMenu(mainmenu_flag::kDefaultHidden, true);
+
+    EXPECT_TRUE(forceOff.hidden);
+    EXPECT_TRUE(defaultHidden.hidden);
+    // Same normalized bit, different raw evidence - advanced callers can tell
+    // "user may reveal with Shift" from "never show outside the hotkey list".
+    EXPECT_EQ(forceOff.flags, 0u);
+    EXPECT_NE(defaultHidden.flags, 0u);
+}
+
+// ===========================================================================
+// SPEC §9.2 case 4 - an unaddressable node always carries a reason
+// SPEC §9.2 case 5 - a dynamic parent is never addressable
+// ===========================================================================
+
+TEST(MenuNodeContractTest, DynamicParentIsNeverAddressable) {
+    // Executing a v2 dynamic slot is undefined behaviour in the SDK and was
+    // observed to be able to bugcheck the host, so a stable GUID and a name
+    // must not be enough to make it look invokable.
+    const Unaddressable reason = ClassifyAddressability(
+        Kind::Command, /*isDynamicParent=*/true, /*hasName=*/true,
+        /*hasStableGuid=*/true);
+
+    EXPECT_EQ(reason, Unaddressable::DynamicParent);
+    EXPECT_FALSE(IsExecutable(reason));
+}
+
+TEST(MenuNodeContractTest, SeparatorIsNeverAddressable) {
+    EXPECT_EQ(ClassifyAddressability(Kind::Separator, false, false, false),
+              Unaddressable::Separator);
+}
+
+TEST(MenuNodeContractTest, MissingStableGuidIsReported) {
+    // The HMENU fallback tier without a resolved GUID: listed but not runnable.
+    EXPECT_EQ(ClassifyAddressability(Kind::Command, false, /*hasName=*/true,
+                                     /*hasStableGuid=*/false),
+              Unaddressable::NoStableIdentifier);
+}
+
+TEST(MenuNodeContractTest, EmptyNodeIsReported) {
+    // The ESLyric idx=9 shape: registered, no name, expands to nothing.
+    EXPECT_EQ(ClassifyAddressability(Kind::Command, false, /*hasName=*/false,
+                                     /*hasStableGuid=*/true),
+              Unaddressable::EmptyNode);
+}
+
+TEST(MenuNodeContractTest, OrdinaryCommandIsExecutable) {
+    const Unaddressable reason =
+        ClassifyAddressability(Kind::Command, false, true, true);
+
+    EXPECT_EQ(reason, Unaddressable::None);
+    EXPECT_TRUE(IsExecutable(reason));
+}
+
+TEST(MenuNodeContractTest, EveryUnaddressableReasonHasAWireToken) {
+    // A missing token would serialize as an empty string and look like "fine".
+    const Unaddressable reasons[] = {
+        Unaddressable::Separator, Unaddressable::DynamicParent,
+        Unaddressable::NoStableIdentifier, Unaddressable::EmptyNode};
+
+    for (const Unaddressable r : reasons) {
+        EXPECT_STRNE(ToString(r), "") << "unaddressable reason needs a token";
+    }
+    EXPECT_STREQ(ToString(Unaddressable::None), "");
+}
+
+// ===========================================================================
+// Address invariants
+// ===========================================================================
+
+TEST(MenuNodeContractTest, AddressValidityRequiresOwnerGuid) {
+    Address a;
+    EXPECT_FALSE(a.valid()) << "an empty address must never look usable";
+
+    a.guid = "{77CFBCD0-98DC-4015-B327-D7142C664806}";
+    EXPECT_TRUE(a.valid());
+    EXPECT_FALSE(a.hasSubGuid());
+
+    a.subGuid = "{A222D5A9-2903-AA8C-EEAE-4B9230558B55}";
+    EXPECT_TRUE(a.hasSubGuid());
+}
+
+// ===========================================================================
+// SPEC §9.2 case 6 - path matching is EXACT, never a substring test
+//
+// This is the D9 regression lock. The pre-refactor matcher accepted a substring
+// hit in either direction and took the first winner, so "Rating/1" could resolve
+// to "Rating/10" and execute the wrong command while reporting success.
+// ===========================================================================
+
+TEST(MenuNodeContractTest, RatingOneMustNotMatchRatingTen) {
+    EXPECT_FALSE(SegmentsEqual("1", "10"));
+    EXPECT_FALSE(SegmentsEqual("10", "1"));
+    EXPECT_TRUE(SegmentsEqual("1", "1"));
+}
+
+TEST(MenuNodeContractTest, SubstringInEitherDirectionIsNotAMatch) {
+    // Both directions of the old fuzzy test must now fail.
+    EXPECT_FALSE(SegmentsEqual("Sort", "Sort by album"));
+    EXPECT_FALSE(SegmentsEqual("Sort by album", "Sort"));
+    // A single character used to match nearly anything.
+    EXPECT_FALSE(SegmentsEqual("S", "Sort"));
+}
+
+TEST(MenuNodeContractTest, NormalizationIgnoresMnemonicsEllipsisAndAccelerator) {
+    // The same command as rendered in different tiers must compare equal.
+    EXPECT_TRUE(SegmentsEqual("&Open...", "open"));
+    EXPECT_TRUE(SegmentsEqual("Open...\tCtrl+O", "Open"));
+    EXPECT_TRUE(SegmentsEqual("  Preferences  ", "preferences"));
+}
+
+TEST(MenuNodeContractTest, AsciiFoldingDoesNotTouchNonAsciiBytes) {
+    // CJK has no case to fold; the bytes must survive verbatim so a
+    // multi-byte sequence is never corrupted mid-character.
+    const std::string zh = "\xE6\xA1\x8C\xE9\x9D\xA2\xE6\xAD\x8C\xE8\xAF\x8D";  // 桌面歌词
+    EXPECT_EQ(NormalizeLabel(zh), zh);
+    EXPECT_TRUE(SegmentsEqual(zh, zh));
+
+    // Distinct CJK labels must stay distinct.
+    const std::string zhOther = "\xE6\x82\xAC\xE6\xB5\xAE\xE6\xAD\x8C\xE8\xAF\x8D";  // 悬浮歌词
+    EXPECT_FALSE(SegmentsEqual(zh, zhOther));
+}
+
+TEST(MenuNodeContractTest, HighBytesAreNeverPassedToCtypeFunctions) {
+    // Guards the UB the old NormalizeLabel had: ::tolower(negative char).
+    // A byte-wise fold would alter these; ours must not.
+    std::string raw;
+    for (int b = 0x80; b <= 0xFF; ++b) raw.push_back(static_cast<char>(b));
+
+    const std::string folded = NormalizeLabel(raw);
+    EXPECT_EQ(folded, raw) << "no byte >= 0x80 may be altered";
+}
+
+TEST(MenuNodeContractTest, PathSplittingIsSeparatorAgnosticAndDropsEmpties) {
+    const auto a = SplitPath("View/ESLyric/Reset position");
+    ASSERT_EQ(a.size(), 3u);
+    EXPECT_EQ(a[0], "View");
+    EXPECT_EQ(a[2], "Reset position");
+
+    // Backslash is accepted, and repeated separators collapse.
+    EXPECT_EQ(SplitPath("a\\b").size(), 2u);
+    EXPECT_EQ(SplitPath("a//b").size(), 2u);
+    EXPECT_EQ(SplitPath("/a/").size(), 1u);
+    EXPECT_TRUE(SplitPath("").empty());
+}
+
+TEST(MenuNodeContractTest, JoinPathRoundTripsThroughSplit) {
+    const std::string path = "View/ESLyric/Desktop lyrics/Reset position";
+    EXPECT_EQ(JoinPath(SplitPath(path)), path);
+}
+
+TEST(MenuNodeContractTest, PathQueryPreservesEveryAncestor) {
+    EXPECT_TRUE(main_menu::MatchesQuery("Preferences", "Preferences", "File/Preferences", true,
+                                       "File/Preferences"));
+    EXPECT_FALSE(main_menu::MatchesQuery("Preferences", "Preferences", "File/Preferences", true,
+                                        "View/Preferences"));
+    EXPECT_TRUE(main_menu::MatchesQuery("Preferences", "Preferences", "File/Preferences", true,
+                                       "Preferences"));
+}
+
+// ===========================================================================
+// Execution pre-flight - a FORCE_OFF command must not be dispatched
+//
+// Before this guard existed, any GUID was handed straight to
+// run_command_context, so a command the user could never have clicked was
+// executed and reported as success.
+// ===========================================================================
+
+TEST(MenuNodeContractTest, ForceOffCommandIsRefusedByDefault) {
+    EXPECT_TRUE(ShouldRefuseExecution(ContextEnabledState::ForceOff, false));
+}
+
+TEST(MenuNodeContractTest, DefaultOffRemainsInvocable) {
+    // DEFAULT_OFF only means "hidden unless Shift is held" - it is still a
+    // reachable command, so refusing it would be a regression.
+    EXPECT_FALSE(ShouldRefuseExecution(ContextEnabledState::DefaultOff, false));
+    EXPECT_FALSE(ShouldRefuseExecution(ContextEnabledState::DefaultOn, false));
+}
+
+TEST(MenuNodeContractTest, ForceFlagOverridesTheRefusalForEveryState) {
+    // force is an explicit opt-out; it must never be the default, but when set
+    // it has to bypass the guard for every state without exception.
+    for (const ContextEnabledState s : {ContextEnabledState::ForceOff,
+                                        ContextEnabledState::DefaultOff,
+                                        ContextEnabledState::DefaultOn}) {
+        EXPECT_FALSE(ShouldRefuseExecution(s, /*force=*/true));
+    }
+}
+
+// ===========================================================================
+// SPEC §9.2 case 7 - an ambiguous path yields ALL candidates, not the first
+//
+// The live host has 15 duplicated labels (e.g. "重置位置" x3), so first-match-
+// wins is not a theoretical concern.
+// ===========================================================================
+
+TEST(MenuNodeContractTest, AmbiguityIsClassifiedRatherThanSilentlyResolved) {
+    EXPECT_EQ(ClassifyMatch(0), MatchKind::NotFound);
+    EXPECT_EQ(ClassifyMatch(1), MatchKind::Unique);
+    EXPECT_EQ(ClassifyMatch(2), MatchKind::Ambiguous);
+    EXPECT_EQ(ClassifyMatch(3), MatchKind::Ambiguous)
+        << "the observed 3x duplicate label must report ambiguous";
+}
+
+TEST(MenuNodeContractTest, EveryMatchKindHasAWireToken) {
+    EXPECT_STREQ(ToString(MatchKind::NotFound), "notFound");
+    EXPECT_STREQ(ToString(MatchKind::Unique), "unique");
+    EXPECT_STREQ(ToString(MatchKind::Ambiguous), "ambiguous");
+}
+
+// ===========================================================================
+// State observability - "unknown" must never masquerade as "enabled"
+//
+// `item_get_display_data_root()` takes a metadb_handle_list, so with an empty
+// selection there are no display flags to read. Emitting a default enabled=true
+// would be indistinguishable from a real observation, so the contract carries
+// `stateKnown` explicitly.
+// ===========================================================================
+
+TEST(MenuNodeContractTest, ObservedStatesAreMarkedKnown) {
+    EXPECT_TRUE(NormalizeMainMenu(0, true).stateKnown);
+    EXPECT_TRUE(NormalizeContextMenu(0, true,
+                                     ContextEnabledState::DefaultOn).stateKnown);
+    EXPECT_TRUE(NormalizeHmenu(0).stateKnown);
+}
+
+TEST(MenuNodeContractTest, UnqueriedContextStateIsMarkedUnknown) {
+    const State s =
+        NormalizeContextMenuStateUnknown(ContextEnabledState::DefaultOn);
+    EXPECT_FALSE(s.stateKnown)
+        << "no selection means enabled/checked were never observed";
+    EXPECT_EQ(s.flags, 0u) << "no display flags were read, so none may be claimed";
+    EXPECT_FALSE(s.checked);
+    EXPECT_FALSE(s.radioChecked);
+}
+
+TEST(MenuNodeContractTest, ForceOffIsStillDetectableWithoutASelection) {
+    // get_enabled_state() takes only an index and stays callable, and the SDK
+    // documents FORCE_OFF as a constant property of the item rather than a
+    // per-selection one. So hidden remains decidable even when nothing else is.
+    EXPECT_TRUE(
+        NormalizeContextMenuStateUnknown(ContextEnabledState::ForceOff).hidden);
+    EXPECT_FALSE(
+        NormalizeContextMenuStateUnknown(ContextEnabledState::DefaultOn).hidden);
+    EXPECT_FALSE(
+        NormalizeContextMenuStateUnknown(ContextEnabledState::DefaultOff).hidden);
+}
+
+// ===========================================================================
+// SPEC §9.2 cases 8 and 9 - truncation is reported; one shared depth cap
+// ===========================================================================
+
+TEST(MenuNodeContractTest, DepthCapIsSingleSourceOfTruth) {
+    // Pre-refactor the same tree was walked to depth 16, 10, or unbounded
+    // depending on the endpoint.
+    EXPECT_FALSE(DepthExceeded(kMaxMenuTreeDepth));
+    EXPECT_TRUE(DepthExceeded(kMaxMenuTreeDepth + 1));
+    EXPECT_FALSE(DepthExceeded(0));
+}
+
+TEST(MenuNodeContractTest, ChildrenCapIsReportedNotSilent) {
+    EXPECT_FALSE(ChildrenExceeded(static_cast<std::size_t>(kMaxChildrenPerNode)));
+    EXPECT_TRUE(ChildrenExceeded(static_cast<std::size_t>(kMaxChildrenPerNode) + 1));
+}
+
+TEST(MenuNodeContractTest, TruncationAggregatesBothCauses) {
+    Truncation t;
+    EXPECT_FALSE(t.any()) << "a complete walk must not claim truncation";
+
+    t.depthExceeded = true;
+    EXPECT_TRUE(t.any());
+
+    Truncation c;
+    c.childrenExceeded = true;
+    EXPECT_TRUE(c.any());
+}
+
+TEST(MenuNodeContractTest, TruncationMergePropagatesUpward) {
+    // A container whose own children all fit must still report that something
+    // deeper was cut off, otherwise the caller sees a complete-looking subtree.
+    Truncation parent;
+    Truncation child;
+    child.depthExceeded = true;
+    parent.merge(child);
+    EXPECT_TRUE(parent.depthExceeded);
+    EXPECT_FALSE(parent.childrenExceeded);
+
+    Truncation other;
+    other.childrenExceeded = true;
+    parent.merge(other);
+    EXPECT_TRUE(parent.depthExceeded) << "merge must never clear a set cause";
+    EXPECT_TRUE(parent.childrenExceeded);
+
+    // Merging a clean walk changes nothing.
+    Truncation clean;
+    Truncation empty;
+    clean.merge(empty);
+    EXPECT_FALSE(clean.any());
+}
+
+TEST(MenuNodeContractTest, ChildWalkPlanVisitsEverythingWhenNothingIsCut) {
+    const ChildWalkPlan plan = PlanChildWalk(/*depth=*/0, /*childCount=*/7);
+    EXPECT_EQ(plan.visitCount, 7u);
+    EXPECT_FALSE(plan.truncation.any());
+}
+
+TEST(MenuNodeContractTest, ChildWalkPlanCapsAtTheChildLimitAndSaysSo) {
+    const std::size_t cap = static_cast<std::size_t>(kMaxChildrenPerNode);
+
+    const ChildWalkPlan atCap = PlanChildWalk(0, cap);
+    EXPECT_EQ(atCap.visitCount, cap);
+    EXPECT_FALSE(atCap.truncation.childrenExceeded)
+        << "exactly at the cap nothing is lost";
+
+    const ChildWalkPlan overCap = PlanChildWalk(0, cap + 1);
+    EXPECT_EQ(overCap.visitCount, cap);
+    EXPECT_TRUE(overCap.truncation.childrenExceeded);
+    EXPECT_FALSE(overCap.truncation.depthExceeded);
+}
+
+TEST(MenuNodeContractTest, ChildWalkPlanStopsAtTheDepthCapAndSaysSo) {
+    // A node sitting exactly at the cap may not have its children visited,
+    // because those children would live one level past it.
+    const ChildWalkPlan atCap = PlanChildWalk(kMaxMenuTreeDepth, /*childCount=*/3);
+    EXPECT_EQ(atCap.visitCount, 0u);
+    EXPECT_TRUE(atCap.truncation.depthExceeded);
+
+    // One level above the cap the children still fit.
+    const ChildWalkPlan below = PlanChildWalk(kMaxMenuTreeDepth - 1, 3);
+    EXPECT_EQ(below.visitCount, 3u);
+    EXPECT_FALSE(below.truncation.any());
+}
+
+TEST(MenuNodeContractTest, ChildWalkPlanDoesNotFlagAnEmptyContainer) {
+    // Nothing was lost, so claiming truncation would be a false positive that
+    // callers cannot distinguish from a real cut.
+    const ChildWalkPlan plan = PlanChildWalk(kMaxMenuTreeDepth, /*childCount=*/0);
+    EXPECT_EQ(plan.visitCount, 0u);
+    EXPECT_FALSE(plan.truncation.any());
+}
+
+// ===========================================================================
+// Search matching - fuzzy on purpose, and safe on non-ASCII input
+// ===========================================================================
+
+TEST(MenuNodeContractTest, FoldedContainsIsCaseInsensitiveForAscii) {
+    EXPECT_TRUE(ContainsFolded("Search Lyrics", "lyric"));
+    EXPECT_TRUE(ContainsFolded("search lyrics", "LYRIC"));
+    EXPECT_TRUE(ContainsFolded("SEARCH LYRICS", "Lyric"));
+    EXPECT_FALSE(ContainsFolded("Search Lyrics", "rating"));
+}
+
+TEST(MenuNodeContractTest, FoldedContainsLeavesMultiByteSequencesIntact) {
+    // The pre-refactor code ran std::transform with ::tolower over every byte,
+    // which is undefined behaviour for bytes >= 0x80 and could corrupt UTF-8.
+    const std::string zh = "\xE6\xA1\x8C\xE9\x9D\xA2\xE6\xAD\x8C\xE8\xAF\x8D";  // 桌面歌词
+    EXPECT_TRUE(ContainsFolded(zh, zh));
+    EXPECT_TRUE(ContainsFolded(zh, "\xE6\xAD\x8C\xE8\xAF\x8D"));  // 歌词
+    EXPECT_EQ(FoldAscii(zh), zh) << "CJK has no case to fold";
+}
+
+TEST(MenuNodeContractTest, EmptyNeedleMatchesEverything) {
+    EXPECT_TRUE(ContainsFolded("anything", ""));
+    EXPECT_TRUE(ContainsFolded("", ""));
+    EXPECT_FALSE(ContainsFolded("", "x"));
+}
+
+TEST(MenuNodeContractTest, SearchScopeParsingIsCaseAndSpaceInsensitive) {
+    EXPECT_EQ(ParseSearchScope("mainmenu"), SearchScope::MainMenu);
+    EXPECT_EQ(ParseSearchScope("  MainMenu  "), SearchScope::MainMenu);
+    EXPECT_EQ(ParseSearchScope("contextmenu"), SearchScope::ContextMenu);
+    EXPECT_EQ(ParseSearchScope("CONTEXTMENU"), SearchScope::ContextMenu);
+    EXPECT_EQ(ParseSearchScope("all"), SearchScope::All);
+}
+
+TEST(MenuNodeContractTest, UnknownScopeWidensRatherThanFailing) {
+    // A narrowing filter that cannot be understood must not silently drop
+    // results, so anything unrecognized means "no filter".
+    EXPECT_EQ(ParseSearchScope(""), SearchScope::All);
+    EXPECT_EQ(ParseSearchScope("tray"), SearchScope::All);
+    EXPECT_EQ(ParseSearchScope("main"), SearchScope::All);
+}
+
+TEST(MenuNodeContractTest, ScopePredicatesCoverEveryFamily) {
+    EXPECT_TRUE(ScopeIncludesMainMenu(SearchScope::All));
+    EXPECT_TRUE(ScopeIncludesContextMenu(SearchScope::All));
+
+    EXPECT_TRUE(ScopeIncludesMainMenu(SearchScope::MainMenu));
+    EXPECT_FALSE(ScopeIncludesContextMenu(SearchScope::MainMenu));
+
+    EXPECT_FALSE(ScopeIncludesMainMenu(SearchScope::ContextMenu));
+    EXPECT_TRUE(ScopeIncludesContextMenu(SearchScope::ContextMenu));
+}
+
+TEST(MenuNodeContractTest, EverySearchScopeHasAWireToken) {
+    EXPECT_STREQ(ToString(SearchScope::All), "all");
+    EXPECT_STREQ(ToString(SearchScope::MainMenu), "mainmenu");
+    EXPECT_STREQ(ToString(SearchScope::ContextMenu), "contextmenu");
+
+    // Round-trips, so an echoed scope can be fed back in.
+    EXPECT_EQ(ParseSearchScope(ToString(SearchScope::MainMenu)),
+              SearchScope::MainMenu);
+    EXPECT_EQ(ParseSearchScope(ToString(SearchScope::ContextMenu)),
+              SearchScope::ContextMenu);
+    EXPECT_EQ(ParseSearchScope(ToString(SearchScope::All)), SearchScope::All);
+}
+
+// ===========================================================================
+// Enum wire tokens - response encoding must not drift from the enums
+// ===========================================================================
+
+TEST(MenuNodeContractTest, KindAndSourceTokensAreStable) {
+    EXPECT_STREQ(ToString(Kind::Command), "command");
+    EXPECT_STREQ(ToString(Kind::Submenu), "submenu");
+    EXPECT_STREQ(ToString(Kind::Separator), "separator");
+
+    EXPECT_STREQ(ToString(Source::MainMenuStatic), "mainmenu_static");
+    EXPECT_STREQ(ToString(Source::MainMenuDynamic), "mainmenu_dynamic");
+    EXPECT_STREQ(ToString(Source::ContextMenuStatic), "contextmenu_static");
+    EXPECT_STREQ(ToString(Source::ContextMenuDynamic), "contextmenu_dynamic");
+    EXPECT_STREQ(ToString(Source::HmenuFallback), "hmenu_fallback");
+}
+
+// The tree walker is started with the family's static value and cannot know
+// per node whether it is inside a dynamic slot; the leaf's sub-command GUID
+// decides. Both families must flip, and nothing else may move.
+TEST(MenuNodeContractTest, LeafSourceFollowsSubGuidForBothFamilies) {
+    EXPECT_EQ(ResolveLeafSource(Source::MainMenuStatic, true), Source::MainMenuDynamic);
+    EXPECT_EQ(ResolveLeafSource(Source::ContextMenuStatic, true), Source::ContextMenuDynamic);
+
+    EXPECT_EQ(ResolveLeafSource(Source::MainMenuStatic, false), Source::MainMenuStatic);
+    EXPECT_EQ(ResolveLeafSource(Source::ContextMenuStatic, false), Source::ContextMenuStatic);
+
+    for (const bool hasSubGuid : {false, true}) {
+        EXPECT_EQ(ResolveLeafSource(Source::MainMenuDynamic, hasSubGuid), Source::MainMenuDynamic);
+        EXPECT_EQ(ResolveLeafSource(Source::ContextMenuDynamic, hasSubGuid), Source::ContextMenuDynamic);
+        EXPECT_EQ(ResolveLeafSource(Source::HmenuFallback, hasSubGuid), Source::HmenuFallback);
+    }
+}
+
+// ===========================================================================
+// Live-host regression anchors (SPEC §2.3)
+//
+// These encode states actually observed on foobar2000 v2.25.3 zh-CN so the
+// normalizers stay correct for the shapes that triggered this work.
+// ===========================================================================
+
+TEST(MenuNodeContractTest, ObservedEsLyricDynamicChildStates) {
+    // "桌面歌词/显示" reported flags=0 -> plain enabled, unchecked leaf.
+    const State show = NormalizeMainMenu(0, true);
+    EXPECT_TRUE(show.enabled);
+    EXPECT_FALSE(show.checked);
+    EXPECT_FALSE(show.hidden);
+
+    // "桌面歌词/窗口置顶" reported flags=3 == disabled|checked. The real menu
+    // showed it greyed AND ticked; the pre-refactor API reported neither.
+    const State alwaysOnTop = NormalizeMainMenu(3, true);
+    EXPECT_FALSE(alwaysOnTop.enabled);
+    EXPECT_TRUE(alwaysOnTop.checked);
+
+    // "悬浮歌词/锁定" reported flags=1 == disabled only.
+    const State locked = NormalizeMainMenu(1, true);
+    EXPECT_FALSE(locked.enabled);
+    EXPECT_FALSE(locked.checked);
+}
+
+TEST(MenuNodeContractTest, ObservedOutputDeviceRadioState) {
+    // Output device rows reported flags=8 (defaulthidden) and the active one
+    // flags=12 (defaulthidden|radiochecked).
+    const State inactive = NormalizeMainMenu(8, true);
+    EXPECT_TRUE(inactive.hidden);
+    EXPECT_FALSE(inactive.checked);
+
+    const State active = NormalizeMainMenu(12, true);
+    EXPECT_TRUE(active.hidden);
+    EXPECT_TRUE(active.radioChecked);
+    EXPECT_TRUE(active.checked) << "radiochecked must imply checked";
+}

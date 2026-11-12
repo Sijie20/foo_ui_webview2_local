@@ -1,0 +1,295 @@
+# 路径权限模型参考 {#权限系统}
+
+涉及文件路径的 Bridge API 会先由 BridgeCore 路径安全规范（Path-security spec）在执行业务 handler 之前进行拦截校验。校验过程可能涉及文件位置解析、文件系统查询与媒体库成员资格判定；未通过校验的请求直接阻断且不进入业务处理函数。被安全策略拒绝的路径返回 `PERMISSION_DENIED`；参数形状或类型错误返回 `INVALID_PARAMS`。
+
+计数来自 `src/api/schema/*.ts` 里的 `@security` 与 `@pathKey` 声明，各注册点的路径安全 spec 都由它们生成：
+
+<!-- api-schema:begin permissions:counts -->
+| 级别 | spec 条数 | 含义 |
+| --- | ---: | --- |
+| `Read` | 6 | 普通文件系统只读校验 |
+| `Write` | 1 | 严格写入目标（配置/临时目录策略） |
+| `MediaRead` | 53 | 媒体上下文只读校验 |
+| `MediaWrite` | 10 | 媒体上下文写校验 |
+| `FileWrite` | 11 | 通用文件写入（`file.*`） |
+| **合计** | **81** | **76 个唯一 API** |
+<!-- api-schema:end -->
+
+## 六级权限模型
+
+| 级别 | 说明 | 校验逻辑 |
+| --- | --- | --- |
+| `None` | 不涉及文件路径 | 无路径校验 |
+| `Read` | 只读文件系统操作 | 禁止系统保护目录、设备路径与 `..` 遍历 |
+| `Write` | 严格写入目标 | 仅允许 PathSecurity 接受的配置/临时等写入目标 |
+| `MediaRead` | 读取媒体元数据/内容 | 先按物理落点应用 Read 规则；媒体库、播放列表与监视目录信任作为回退，仍须通过落点检查 |
+| `MediaWrite` | 修改媒体文件 | 独立校验链：保护目录黑名单，再按严格写入目标／媒体库或播放列表成员／媒体库监视目录／与受信音频同目录的伴生文件依次放行。**仅仅位于非系统盘不构成放行理由** |
+| `FileWrite` | 通用文件写入（`file.*`） | 独立校验链，并非 `MediaWrite` 超集：黑名单后按严格写入目标／媒体库监视目录／非系统卷（含真正远程共享；回环共享按实际本地落点）／媒体库或播放列表成员依次放行——不含伴生文件步。监视目录与非系统卷两步共同让 `file.mkdir` 与 `file.write` 能创建新路径 |
+
+::: tip 权限层级关系
+- 普通文件系统通道：`None < Read < Write`
+- 媒体文件通道：`None < Read < MediaRead < MediaWrite`
+- 独立写通道：`Write`、`MediaWrite` 与 `FileWrite` 是三条平行的独立写入通道
+:::
+
+::: warning FileWrite 比 MediaWrite 宽
+`FileWrite` 允许写入非系统盘上的任意路径，以及媒体库监视目录内的任意路径（包括系统盘），是当前暴露面最宽的写通道。该通道专为 `file.*` 通用文件操作设计（而非局限于已建库的媒体文件），若套用媒体写入规则将导致无法新建文件或目录。代码审计或审查第三方主题时，应优先审计此通道的调用点。
+:::
+
+## 媒体路径的解析
+
+`MediaRead` 先从 `unpack://` 或受支持的 `archive://` 路径提取物理容器；嵌套 unpack 逐层展开。
+物理位置为 `file-relative://` 时，由 foobar2000 解析便携路径，再检查实际落点的设备路径、
+目录权限、映射盘与 UNC 规则。包内条目名不作为本机目录检查。解析失败仍以 `PERMISSION_DENIED` 拒绝。
+
+物理位置只用于授权检查，读取与路径回显仍使用原曲目路径；`|subsong:N` 继续选择原曲目的子曲目。
+媒体库成员查询保留该轨号。容器可读不代表每个接口都支持其内容：例如封面接口自身的
+便携路径限制、外挂歌词候选和媒体流的本地文件限制仍按各接口说明处理。
+
+上述解析只适用于 `MediaRead`，其它权限级别沿用各自规则。`MediaRead` 描述的是参数授权，
+不代表整个方法没有副作用；播放、添加列表和 ReplayGain 扫描等方法也使用它。
+
+## 错误响应
+
+```json
+{
+  "success": false,
+  "error": "file.read: path security denied for 'path': Access denied: protected system path",
+  "code": "PERMISSION_DENIED"
+}
+```
+
+被拒的路径本体不会回显。消息里只有方法名、出问题的参数（数组参数还带下标，形如 `items[2].destination`）和拒因，调用方据此能判断是哪个参数被拒，而宿主不会把文件系统位置泄漏到一个页面可能转发出去的 payload 里。
+
+```json
+{
+  "success": false,
+  "error": "file.read: param 'path' must be a string",
+  "code": "INVALID_PARAMS"
+}
+```
+
+```javascript
+const result = await fb2k.invoke('file.read', { path: somePath });
+if (result.success === false) {
+  if (result.code === 'PERMISSION_DENIED') {
+    console.warn('路径被安全策略拒绝:', result.error);
+  } else if (result.code === 'INVALID_PARAMS') {
+    console.warn('参数在进入 handler 前被拒:', result.error);
+  }
+}
+```
+
+## API 权限对照表
+
+<!-- api-schema:begin permissions:Read -->
+### Read — 只读文件系统（6 条）
+
+| API | 参数 | 数组 | 嵌套键 |
+| --- | --- | --- | --- |
+| `file.copy` | `source` | — | — |
+| `file.copyAsync` | `items` | 是 | `source` |
+| `file.exists` | `path` | — | — |
+| `file.getInfo` | `path` | — | — |
+| `file.list` | `path` | — | — |
+| `file.read` | `path` | — | — |
+<!-- api-schema:end -->
+
+<!-- api-schema:begin permissions:Write -->
+### Write — 严格写入目标（1 条）
+
+| API | 参数 | 数组 | 嵌套键 |
+| --- | --- | --- | --- |
+| `http.download` | `saveTo` | — | — |
+<!-- api-schema:end -->
+
+<!-- api-schema:begin permissions:MediaRead -->
+### MediaRead — 读取媒体文件（53 条）
+
+| API | 参数 | 数组 | 嵌套键 |
+| --- | --- | --- | --- |
+| `artwork.getAvailableArtwork` | `path` | — | — |
+| `artwork.getAvailableTypes` | `path` | — | — |
+| `artwork.getBatch` | `paths` | 是 | — |
+| `artwork.getByPath` | `path` | — | — |
+| `artwork.getFb2kUrlByPath` | `path` | — | — |
+| `artwork.getFb2kUrlByPathBatch` | `items` | 是 | `path` |
+| `artwork.getFb2kUrlByPathBatch` | `paths` | 是 | — |
+| `artwork.getFolderImages` | `directory` | — | — |
+| `artwork.getForTrack` | `path` | — | — |
+| `artwork.getLyrics` | `path` | — | — |
+| `artwork.getMetadata` | `path` | — | — |
+| `audio.analyzeBPM` | `path` | — | — |
+| `audio.decodePcm` | `path` | — | — |
+| `audio.generateFullWaveform` | `path` | — | — |
+| `clipboard.writeFiles` | `paths` | 是 | — |
+| `discovery.executeContextMenuByPath` | `trackPath` | — | — |
+| `jitQueue.enqueueNext` | `url` | — | — |
+| `jitQueue.playNow` | `url` | — | — |
+| `jitQueue.preloadBatch` | `urls` | 是 | — |
+| `jitSession.play` | `location` | — | — |
+| `jitSession.setNext` | `location` | — | — |
+| `library.addToPlaylist` | `paths` | 是 | — |
+| `library.getByPath` | `path` | — | — |
+| `lyrics.exists` | `path` | — | — |
+| `lyrics.get` | `path` | — | — |
+| `media.getContainerInfo` | `path` | — | — |
+| `media.getStreamUrl` | `path` | — | — |
+| `metadata.probeBatchAsync` | `paths` | 是 | — |
+| `metadata.read` | `path` | — | — |
+| `metadata.readBatch` | `paths` | 是 | — |
+| `metadata.readByPath` | `path` | — | — |
+| `metadata.readRaw` | `path` | — | — |
+| `playback.playPath` | `path` | — | — |
+| `playback.playPaths` | `paths` | 是 | — |
+| `playcount.get` | `paths` | 是 | — |
+| `playcount.getBatch` | `paths` | 是 | — |
+| `playlist.addHandles` | `handles` | 是 | `path` |
+| `playlist.addPaths` | `paths` | 是 | — |
+| `playlist.addPathsAsync` | `paths` | 是 | — |
+| `playlist.addPathsSequential` | `paths` | 是 | — |
+| `playlist.insertTracks` | `handles` | 是 | `path` |
+| `playlist.replaceAllAndPlay` | `paths` | 是 | — |
+| `queue.addPaths` | `paths` | 是 | — |
+| `queue.insertNext` | `paths` | 是 | — |
+| `rating.get` | `path` | — | — |
+| `replaygain.get` | `paths` | 是 | — |
+| `replaygain.scan` | `paths` | 是 | — |
+| `shell.openWith` | `path` | — | — |
+| `shell.showInExplorer` | `path` | — | — |
+| `titleformat.eval` | `path` | — | — |
+| `titleformat.evalBatch` | `paths` | 是 | — |
+| `titleformat.evalFields` | `path` | — | — |
+| `titleformat.evalFieldsBatch` | `paths` | 是 | — |
+<!-- api-schema:end -->
+
+<!-- api-schema:begin permissions:MediaWrite -->
+### MediaWrite — 修改媒体文件（10 条）
+
+| API | 参数 | 数组 | 嵌套键 |
+| --- | --- | --- | --- |
+| `lyrics.save` | `path` | — | — |
+| `metadata.embedArtwork` | `path` | — | — |
+| `metadata.removeEmbeddedArt` | `path` | — | — |
+| `metadata.removeField` | `path` | — | — |
+| `metadata.removeTag` | `path` | — | — |
+| `metadata.write` | `path` | — | — |
+| `metadata.writeBatch` | `items` | 是 | `path` |
+| `playcount.set` | `path` | — | — |
+| `rating.set` | `path` | — | — |
+| `replaygain.clear` | `paths` | 是 | — |
+<!-- api-schema:end -->
+
+::: info 嵌套数组校验
+`metadata.writeBatch` 的 `items` 是对象数组，系统会提取每个元素的 `path` 字段进行校验。
+:::
+
+<!-- api-schema:begin permissions:FileWrite -->
+### FileWrite — 通用文件写入（11 条）
+
+| API | 参数 | 数组 | 嵌套键 |
+| --- | --- | --- | --- |
+| `file.copy` | `destination` | — | — |
+| `file.copyAsync` | `items` | 是 | `destination` |
+| `file.delete` | `path` | — | — |
+| `file.deleteAsync` | `paths` | 是 | — |
+| `file.mkdir` | `path` | — | — |
+| `file.move` | `destination` | — | — |
+| `file.move` | `source` | — | — |
+| `file.moveAsync` | `items` | 是 | `destination` |
+| `file.moveAsync` | `items` | 是 | `source` |
+| `file.rename` | `path` | — | — |
+| `file.write` | `path` | — | — |
+<!-- api-schema:end -->
+
+`file.copy` 的 `source` 走 `Read`、`destination` 走 `FileWrite`；`file.move` 两端均走 `FileWrite`。异步族沿用同一套分档：`file.copyAsync` 逐条校验 `items[].source`（`Read`）与 `items[].destination`（`FileWrite`），`file.moveAsync` 两个嵌套键都走 `FileWrite`，`file.deleteAsync` 的 `paths` 逐条走 `FileWrite`。逐条校验是 fail-fast：任一条被拒即整批失败返回 `PERMISSION_DENIED`，不派工。
+
+## 自定义策略 API
+
+| API | 校验方式 |
+| --- | --- |
+| `shell.exec` | 无命令白名单；可选 `cwd` 仍走 PathSecurity |
+| `shell.spawn` | 无可执行白名单；绝对可执行路径与 `cwd` 做路径校验 |
+| `console.log` | 日志目录限制 + 保留设备名过滤 + `.log` / `.txt` 扩展名白名单 |
+
+## 路径安全规则详解
+
+### 通用拦截
+
+- 设备路径：`\\.\...`、`\\?\...`
+- 目录遍历：路径中某一级恰好是 `.` 或 `..`（文件名内部包含的连续句点，如 `Bonus Track..flac`，属于合法路径）
+- 空路径 / 相对路径：必须是绝对路径
+
+### Read
+
+系统盘保护目录包括：
+
+| 保护目录 | 原因 |
+| --- | --- |
+| `C:\\Windows\\` | 系统文件 |
+| `C:\\Program Files\\` | 程序文件 |
+| `C:\\Program Files (x86)\\` | 32 位程序文件 |
+| `C:\\ProgramData\\` | 系统配置数据 |
+
+foobar2000 的 profile 目录不受上表限制。便携版装在 `C:\Program Files\` 下时，仍能读写自己的 profile，包括其中的模板文件夹。
+
+保护目录以外，系统盘在 Read 下只放行 foobar2000 profile、临时目录、OneDrive，以及用户的音乐、视频、图片、桌面、文档和下载文件夹。
+
+非系统盘在 Read 下通常放行，以支持 NAS / 便携版场景。
+
+### Write
+
+仅允许严格写策略接受的目标目录；实践上为 foobar2000 配置目录与系统临时目录。
+
+### MediaRead
+
+先执行 Read 规则，一旦通过即放行。因此非系统盘路径（含 UNC / NAS 共享）**无需**
+查询媒体库或播放列表即可通过。
+
+媒体上下文信任只是 Read 拒绝后的回退（实际场景为白名单之外的系统盘路径）。以下
+任一条件成立即放行：
+
+- 该路径可被加入 foobar2000 媒体库，或
+- 该路径能解析到媒体库中的曲目，或
+- 该路径匹配某个播放列表中的曲目。该判定由完整覆盖全部播放列表的成员索引
+  支撑，没有扫描上限，实际存在的匹配总能命中。
+
+### MediaWrite
+
+MediaWrite 不复用 Read 或 MediaRead 的入口，而是走自己的校验链。在通用拒绝规则
+之后，保护目录黑名单始终生效；随后按顺序命中其中任意一条即放行：
+
+- 严格写入目标（配置目录 / 临时目录），或
+- 位于媒体库 / 播放列表上下文中的路径，或
+- 位于媒体库监视目录之下的路径 —— 覆盖已落盘但尚未扫描入库的文件，或
+- 与受信上下文音频文件同目录的文件 —— `.lrc` 等附属文件正是据此放行。
+
+MediaWrite 相对 MediaRead 增加的是黑名单：即使目标确实出现在媒体库或播放列表中，
+系统保护目录仍禁止写入。
+
+**仅仅位于非系统盘不构成 MediaWrite 的放行理由。** 读策略允许非系统盘，但把这条
+继承到写侧就等于「任何主题都能改写 `D:` 或 `E:` 上的任意音频文件」。
+
+### FileWrite
+
+FileWrite 走自己的校验链，并非 MediaWrite 的超集：通用拒绝与保护目录黑名单之后，
+依次按严格写入目标（配置目录 / 临时目录）、媒体库监视目录（`is_path_addable`——
+判配置而非成员性，因此新建路径与 UNC 监视目录同样放行）、以盘符寻址的非系统盘
+（UNC 不在此列）、媒体库 / 播放列表上下文放行；MediaWrite 的伴生文件步在
+FileWrite 中不存在。
+
+::: warning FileWrite 放行任意非系统盘
+这是当前暴露面最宽的写通道，`file.delete` 与 `file.write` 会接受 `D:`、`E:`
+等盘上的任意目标。保留该放行规则以允许 `file.mkdir` 与 `file.write` 在常规数据分区
+创建新路径；由于新建路径预先不存在于媒体库或播放列表中，若仅按成员性校验将拒绝调用。
+监视目录不同：`is_path_addable` 判的是配置而非成员性，监视目录内的新建路径不依
+赖本放行即可通过。
+
+**判据是 canonical 解析之后的盘符，不是调用方传入路径字面的盘符。** 若用户目录被
+junction / 符号链接重定向到非系统盘（例如 `C:\Users\<user>` → `E:\Users\<user>`，
+迁移过用户目录的机器上很常见），该目录整棵子树都以 `E:` 形态参与判定，从而落入本
+放行面 —— 尽管传入的路径以 `C:` 开头。放行与文件扩展名无关。审查主题时不能只看字
+面盘符，需按目标机器的实际重定向情况判断。
+:::
+
+本页的计数与各级别的表格由 `src/api/schema/*.ts` 里的 `@security` 与 `@pathKey` 声明生成。

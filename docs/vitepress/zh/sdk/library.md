@@ -1,0 +1,553 @@
+# fb.library 媒体库
+
+> 枚举建议：全库曲目优先使用 `getCount()` + `getAll(start, count)` 分页遍历。 获取真实媒体库根目录请使用 `getRoots()`；浏览目录树使用 `browseTree()`；高层遍历使用 `enumerateTree()`。`browseDirectory()` / `enumerateDirectories()` 已弃用，仅保留为 legacy 目录投影视图。
+
+## search(query, limit?)
+
+搜索媒体库。返回 `{tracks: [...], total, offset, limit, hasMore}`。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| query | string | 搜索查询（支持 foobar2000 查询语法） |
+| limit | number | 最大返回数量（默认 100） |
+| options | `Omit<LibrarySearchParams, 'query' \| 'limit'>?` | 其余原生参数（`offset`、`fields`） |
+| options.fields | `string[]?` | 要投影的曲目字段名，见[字段投影](#field-projection) |
+
+> `tracks` 承载曲目行。`hasMore` 表示是否有更多结果。
+
+```javascript
+const results = await fb.library.search('artist HAS Beatles', 100);
+if (results.success === false) throw new Error(results.error);
+console.log(`找到 ${results.total} 首`);
+if (results.hasMore) console.log('还有更多结果');
+
+// 字段投影：tracks 中每行只含请求的两个键
+const narrow = await fb.library.search('artist HAS Beatles', 500, {
+    fields: ['absolutePath', 'album'],
+});
+```
+
+## getAlbums(limit?)
+
+获取所有专辑。
+
+```javascript
+const albums = await fb.library.getAlbums(50);
+// [{album: "Abbey Road", artist: "The Beatles", count: 17}, ...]
+```
+
+## getArtists(limit?)
+
+获取所有艺术家。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| limit | number | 最大返回数量。只截艺术家条目，不截每位的 `albums` |
+| options | `Omit<LibraryGetArtistsParams, 'limit'>?` | 其余原生参数：`sort`（`name` / `trackCount` / `albumCount`）与 `includeAlbums` |
+
+返回 `LibraryArtistsResponse`；`items` 的每一行是 `ArtistInfo`——`{ name, albumCount, trackCount, totalDuration }`，`options.includeAlbums` 为 `true` 时再多一个 `albums?: ArtistAlbumRef[]`（`{ name, artist }`）。
+
+> 每位参与艺术家各成一个条目，一首多艺术家曲目会计进其中每一位。`trackCount` 是参与曲目数，各条目相加会大于曲目总数；`albumCount` 与 `totalDuration` 同样按每位艺术家重复计入。
+
+> 启用 `includeAlbums` 可在单次媒体库扫描中直接生成全库「艺术家 → 专辑」映射，无需对每位艺术家单独调用 `getArtistAlbums`。每个 `albums` 项的 `(name, artist)` 对应 `getAlbums` 的分组标识（`artist` 优先取专辑艺术家首值，缺省时取艺术家首值）；若无 `albumId`，通过该二元组与 `getAlbums` 结果对应，存在 `albumId` 时优先使用标识匹配。`albums` 元素按该标识去重并依 `name`、`artist` 排序；`albumCount` 仅按专辑名称去重，因此专辑艺术家不同的两张同名专辑在 `albumCount` 中计为 1，在 `albums` 中计为 2。
+
+```javascript
+const artists = await fb.library.getArtists(100);
+
+// 给浏览器的「艺术家」分节一次拿到映射
+const res = await fb.library.getArtists(100000, { includeAlbums: true });
+if (res.success === false) throw new Error(res.error);
+const { items } = res;
+const albumsByArtist = new Map(items.map((a) => [a.name, a.albums]));
+```
+
+## getStats()
+
+获取媒体库统计信息。返回 `{totalTracks, totalDuration, totalSize, ...}`。
+
+> `totalArtists` 按参与艺术家计——一首多艺术家曲目会计进其中每一位——因此与 `getArtists()` 的条目数一致。
+
+```javascript
+const stats = await fb.library.getStats();
+if (stats.success === false) throw new Error(stats.error);
+console.log(`${stats.totalTracks} 首，总时长 ${stats.totalDuration} 秒`);
+```
+
+## getGenres()
+
+获取流派列表。返回 `{genres: [{name, trackCount}]}`。
+
+> 多值 `genre` 的每个值各成一个条目，`trackCount` 是参与曲目数：一首标了多个流派的曲目会计进其中每一个。
+
+```javascript
+const r = await fb.library.getGenres();
+// {genres: [{name: 'Rock', trackCount: 5000}, ...]}
+```
+
+## getStatus()
+
+获取媒体库状态。返回 `{initialized, enabled, ...}`。
+
+```javascript
+const s = await fb.library.getStatus();
+if (s.success === false) throw new Error(s.error);
+if (s.initialized) console.log('媒体库已初始化');
+```
+
+## getCount()
+
+获取媒体库曲目总数。返回 `{count}`。
+
+```javascript
+const res = await fb.library.getCount();
+if (res.success === false) throw new Error(res.error);
+const { count } = res;
+```
+
+## getAll(start, count, opts?)
+
+分页获取媒体库曲目，返回包含 `LibraryTrack` 对象的 `LibraryPagedTracksResponse`（包含共用的曲目字段与媒体库索引 `index`）。当宿主在后台工作线程中构建全量列表时，SDK 会自动监听匹配的 `library:getAllResult` 事件，并解析为一致的响应格式。列表构建失败或超时均返回包含 `OPERATION_FAILED` 的错误信封，Promise 不会 reject；`details.requestId` 指示当前请求标识，发生超时时附带 `details.timeoutMs`。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| start | number | 第一首的位置，作为宿主的 `offset` 发送；宿主默认 `0` |
+| count | number | 最多返回的曲目数，作为宿主的 `limit` 发送；宿主默认 `100` |
+| opts.useCache | boolean | 从 `start` 0 读取时，优先使用宿主缓存的全量列表快照。仅在显式指定时发送；宿主默认 `true`。从 0 开始的全量请求将在宿主端自动保留缓存 |
+| opts.asyncResult | boolean | 指示宿主在后台工作线程构建全量请求；SDK 默认 `true`（宿主底层原生默认 `false`）。仅在启用 `useCache` 且缓存未命中时生效。设置为 `false` 将在宿主主线程同步构建 |
+| opts.timeout | number | 等待 `library:getAllResult` 事件的客户端超时毫秒数，默认 `60000`；设为 `0` 可禁用 |
+
+当宿主在后台线程构建数据时，会先行返回 `{ pending: true, requestId }` 回执，完整分页数据随后通过 `library:getAllResult` 事件投递。SDK 在发起调用前即建立针对该 `requestId` 的事件监听，确保早于应答返回的事件不会遗漏，并在数据到达、超时或异常后自动注销监听。调用方无需手动订阅该事件。调用本身返回的失败信封原样兑现；只有调用本身被拒绝时，Promise 才会 reject。
+
+```javascript
+const r = await fb.library.getAll(0, 100);
+if (r.success === false) throw new Error(r.error);
+console.log(`媒体库共 ${r.total} 首，本次返回 ${r.tracks.length} 首`);
+
+// 跳过保留的副本，重建整个媒体库列表
+const all = await fb.library.getAll(0, 1_000_000, { useCache: false, asyncResult: false });
+if (all.success === false) {
+    console.warn('library.getAll 失败或超时：', all.error, all.details);
+} else {
+    console.log(all.fromCache, all.tracks.length);
+}
+```
+
+> `tracks` 与 `items` 内容相同，`items` 为兼容别名。
+
+> `artists` 包含 `artist` 背后的原子值数组：`artists.join(', ')` 等于 `artist`，因此多值标签只能从 `artists` 还原，无法从 `artist` 还原。每个共享的 `Track` 行均包含该属性（媒体库曲目行、`fb.playlist.getTracks`、`fb.player.getCurrentTrack`、`fb.queue.get` 以及曲目事件），`getByPath()` 的扁平结果亦包含该字段；封面相关的载荷不含该字段。凡返回 `Track` 行的接口，`albumArtists` 对 `albumArtist` 遵循相同规则：其首个元素（若为空则取 `artists[0]`）即 `getAlbums()` 归类该曲目时使用的专辑艺术家。
+
+## enumerateTracks(options?)
+
+高层分页枚举器（异步生成器），内部基于 `getCount()` + `getAll()`。
+
+```javascript
+for await (const page of fb.library.enumerateTracks({ pageSize: 500 })) {
+  console.log(page.fetched, '/', page.total);
+}
+```
+
+## refresh()
+
+签名：`fb.library.refresh(): Promise<LibraryRefreshResponse>`
+
+请求 foobar2000 重新扫描配置的媒体库文件夹。该方法与 `rescan()` 等价，底层调用 foobar2000 SDK 已弃用的接口。媒体库自身会跟踪文件变化，因此通常无需显式调用。
+
+```javascript
+await fb.library.refresh();
+```
+
+## getByPath(path)
+
+通过文件路径在媒体库中搜索曲目。返回 `{found, path, title, artist, artists, album, duration, ...}`（字段在顶层，无嵌套）。
+
+```javascript
+const r = await fb.library.getByPath('E:\\Music\\song.flac');
+if (r.success === false) throw new Error(r.error);
+if (r.found) console.log(r.title, r.artist);
+```
+
+> 扁平结果里 `artists` 与 `artist` 并列，含义与 `getAll()` 的行一致：`artists.join(', ')` 恰好等于 `artist`。本方法不返回 `albumArtist` / `composer`，因此只多 `artists` 这一个数组键。
+
+## getChanges(params?)
+
+获取媒体库 `epoch`、`revision` 及指定修订号之后发生变化的 handle，用于本地增量同步。参数缺省或与当前记录不匹配时，返回 `resync: true` 与全量 handle。媒体库载入完成前以 `OPERATION_PENDING` 失败。使用说明见[本地副本的增量同步](../api/library.md#keeping-a-local-copy)。
+
+```javascript @ts-nocheck
+const r = await fb.library.getChanges({ epoch: mark.epoch, since: mark.revision });
+if (r.success === false) throw new Error(r.error);
+const changed = r.resync ? [] : r.changed;
+```
+
+## getTracks(handles, fields?)
+
+按给定顺序获取最多 5000 个 handle 对应的媒体库曲目行。不存在或未启用时的 handle 放入 `missing`。可选参数 `fields` 用于限定返回字段，用法同 `query()`。本方法在主线程逐个解析 handle，适合取少量变化的行；整库重建用 `search()` 翻页，做法见[本地副本的增量同步](../api/library.md#keeping-a-local-copy)。
+
+```javascript @ts-nocheck
+const r = await fb.library.getTracks(changed.slice(0, 5000), ['handle', 'title', 'album']);
+if (r.success === false) throw new Error(r.error);
+console.log(r.tracks.length, r.missing.length);
+```
+
+## getRoots()
+
+获取真实媒体库根目录列表。使用 `library_manager::get_relative_path()` 按段比较推导。
+
+```javascript
+const res = await fb.library.getRoots();
+if (res.success === false) throw new Error(res.error);
+const { roots, total, indexedTracks } = res;
+for (const root of roots) {
+  console.log(root.displayName, root.absolutePath, root.trackCount);
+}
+```
+
+| 响应字段 | 类型 | 说明 |
+| --- | --- | --- |
+| roots | LibraryRootInfo[] | 根目录列表，按 displayName 排序 |
+| total | number | 根目录数量 |
+| indexedTracks | number | 成功索引的条目数 |
+| skippedTracks | number | 跳过的条目数 |
+| enabled | boolean | 媒体库是否启用 |
+| fromCache | boolean | 是否来自缓存 |
+
+| 根字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | string | 稳定 root 标识；当前为规范化 absolutePath |
+| displayName | string | 默认取目录名；同名冲突时回退完整路径 |
+| rawPath | string | 当前与 absolutePath 相同 |
+| absolutePath | string | 规范化本地绝对路径 |
+| trackCount | number | 该根下媒体库条目数 |
+
+> 仅可解析为稳定本地绝对路径的条目会进入根列表。`http://`、`file-relative://`、`unpack://` 等协议型条目会计入 `skippedTracks`。 首次调用同步构建索引，后续走缓存。媒体库变化或调用 `invalidateCache()` 时自动失效。
+
+## browseTree(params)
+
+按 `rootId` + `pathId` 浏览 typed 目录树。先调用 `getRoots()` 获取可用的 `rootId`。
+
+```javascript
+const res = await fb.library.getRoots();
+if (res.success === false) throw new Error(res.error);
+const { roots } = res;
+const tree = await fb.library.browseTree({ rootId: roots[0].id });
+if (tree.success === false) throw new Error(tree.error);
+for (const dir of tree.directories) {
+  console.log(dir.name, dir.trackCount, dir.hasChildren);
+}
+// 展开子目录并包含文件
+const sub = await fb.library.browseTree({
+  rootId: roots[0].id,
+  pathId: tree.directories[0].pathId,
+  includeFiles: true
+});
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| rootId | string | ✓ | 媒体库根 ID（来自 getRoots().roots[].id） |
+| pathId | string | ✗ | 根下相对路径，/ 分隔（缺省 "" 表示根） |
+| includeFiles | boolean | ✗ | 是否包含文件列表（默认 false） |
+| recursiveFiles | boolean | ✗ | 递归包含后代文件（默认 false，仅 includeFiles=true 时生效） |
+
+| 响应字段 | 类型 | 说明 |
+| --- | --- | --- |
+| root | LibraryRootInfo | 所属根信息 |
+| pathId | string | 请求的 pathId |
+| absolutePath | string | 当前目录绝对路径 |
+| directories | LibraryDirectoryNodeInfo[] | 直接子目录，按 displayName 排序 |
+| files | LibraryTrack[] | 文件列表（includeFiles=false 时为空数组） |
+| fromCache | boolean | 是否来自缓存 |
+
+**错误**: `rootId` 为空以 `INVALID_PARAMS` 失败；`rootId` 不存在（`"Unknown rootId"`）或 `pathId` 不存在（`"Path not found"`）以 `NOT_FOUND` 失败。
+
+## enumerateTree(options)
+
+Root-aware 异步树遍历器（异步生成器），基于 `browseTree()` 实现 BFS/DFS 遍历。
+
+```javascript
+for await (const batch of fb.library.enumerateTree({
+  rootId: roots[0].id,
+  strategy: 'bfs',
+  includeFiles: true
+})) {
+  console.log(batch.pathId, batch.directories.length, batch.files.length);
+  console.log(`进度: ${batch.visited} 已访问, ${batch.pending} 待访问`);
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| rootId | string | ✓ | 媒体库根 ID（来自 getRoots().roots[].id） |
+| pathId | string | ✗ | 起始路径，缺省 "" 从根开始 |
+| includeFiles | boolean | ✗ | 是否包含直接文件（默认 false） |
+| strategy | `'bfs' \| 'dfs'` | ✗ | 遍历策略（默认 'bfs'） |
+| signal | AbortSignal | ✗ | 中断信号 |
+| onProgress | Function | ✗ | 进度回调 { rootId, pathId, absolutePath, visited, pending } |
+
+| yield 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| ...browseTree响应 | - | 包含 root, pathId, absolutePath, directories, files, fromCache |
+| visited | number | 已访问节点数 |
+| pending | number | 待访问节点数 |
+
+| return 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| rootId | string | 遍历的根 ID |
+| visited | number | 总访问节点数 |
+| aborted | boolean | 是否被 signal 中断 |
+
+> 每个 yield 对应一次 `browseTree({ recursiveFiles: false })` 调用，`files` 只包含当前节点的直接文件，不重复。
+
+## browseDirectory(path, includeFiles?)
+
+> Legacy API，不推荐作为根入口，请使用 `getRoots()` + `browseTree()` + `enumerateTree()`。
+
+浏览媒体库目录投影视图。返回 legacy 目录字符串和文件列表。
+
+> **已弃用**：`path === ''` 只表示“投影后的顶层目录视图”，不等于 foobar2000 已配置的媒体库根目录列表。
+
+```javascript
+const root = await fb.library.browseDirectory('', false);
+```
+
+## enumerateDirectories(options?)
+
+> **已弃用**：Legacy API，基于 `browseDirectory()`。请使用 `getRoots()` + `browseTree()` + `enumerateTree()` 获取真实根。
+
+高层目录遍历器（异步生成器），支持 `bfs/dfs`。
+
+```javascript
+for await (const node of fb.library.enumerateDirectories({ rootPath: '', strategy: 'bfs' })) {
+  console.log(node.path, node.directories.length);
+}
+```
+
+## getAlbumTracks(album, albumArtist)
+
+获取指定专辑的曲目列表，结果依次按碟号、曲号及媒体库原始顺序排序。调用时原样传入专辑行的 `name` 与 `albumArtist`；若包含专辑标识，可通过第三个参数指定 `{ albumId: album.albumId }`。未提供 `albumId` 时按名称逐字节精确匹配；提供 `albumId` 时依据唯一标识匹配，避免同名冲突。返回对象的 `total` 与对应专辑的 `trackCount` 一致。行中的 `artist` 是另一个键，不能代替 `albumArtist`。若专辑艺术家为空，`albumArtist` 须传入空字符串 `""`。分组结果在媒体库变动前由宿主缓存，重复请求无需重新扫描。空值或非法标识以 `INVALID_PARAMS` 失败，不自动回退为按名称匹配。
+
+```javascript
+const page = await fb.library.getAlbums({ limit: 1 });
+const album = page.success ? page.albums[0] : undefined;
+if (album) {
+    const res = await fb.library.getAlbumTracks(album.name, album.albumArtist, album);
+}
+```
+
+## getFieldValues(field, limit?, separator?)
+
+获取媒体库中指定字段的所有唯一值与曲目计数。`enumerateFieldValues(field, options?)` 是语义别名，接受 `{ limit?, separator? }`。
+
+```javascript
+const years = await fb.library.getFieldValues('date', 50);
+const moreYears = await fb.library.enumerateFieldValues('date', { limit: 50 });
+```
+
+## query(query, sort?, limit?, fields?)
+
+使用 foobar2000 查询语法搜索媒体库。与 `search()` 类似但支持自定义排序。排序发生在按 `limit` 截断之前，`total` 是截断前的全命中数。
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| query | string | 是 | foobar2000 查询语法；空值返回 `success: false` |
+| sort | string | 否 | TitleFormat 排序模式；省略则保持库序 |
+| limit | number | 否 | 返回条数上限（宿主默认 100） |
+| fields | `string[]` | 否 | 要投影的曲目字段名，见[字段投影](#field-projection) |
+
+```javascript
+const r = await fb.library.query('%rating% GREATER 3', '%rating%', 100);
+
+// 大结果集只要路径
+const paths = await fb.library.query('%codec% IS FLAC', undefined, 100000, [
+    'absolutePath',
+]);
+```
+
+## 字段投影 {#field-projection}
+
+`query(..., fields)` 与 `search(query, limit, { fields })` 支持可选的曲目字段名列表。省略时每行输出媒体库曲目行的全部键。
+
+指定 `fields` 时，返回的每一行只包含所请求的键，因此行的类型为 `LibraryTrackPartial`。无法读取元数据的曲目以默认值填充非可选字段（空字符串或 `0`）；若曲目无关联专辑标识，则即使请求了 `albumId` 也不包含该可选字段。
+
+**可用字段名**（精确匹配、大小写敏感）：
+
+`index`、`handle`、`title`、`artist`、`artists`、`album`、`albumId`、`albumArtist`、`albumArtists`、`genre`、`date`、`trackNumber`、`discNumber`、`duration`、`path`、`absolutePath`、`fileSize`、`bitrate`、`sampleRate`、`channels`、`codec`、`subsong`、`rating`
+
+> `artist` / `albumArtist` / `genre` / `composer`（仅指该 API 实际返回的字段）的多值标签按 `, ` 原序拼接，不去重。
+
+> `artists` 是 `artist` 的原子值数组：`artists.join(', ')` 恰好等于 `artist`。每个共享的 `Track` 行都带它（媒体库的曲目行、`fb.playlist.getTracks`、`fb.player.getCurrentTrack`、`fb.queue.get` 与曲目事件），`getByPath()` 的扁平结果也带；artwork 载荷不带。凡返回 `Track` 行的地方，`albumArtists` 对 `albumArtist` 同理：它的第一个值（为空时取 `artists[0]`）就是 `getAlbums()` 给这首曲目归组用的专辑艺术家。`artists` 数组与 `artist` 字符串可独立投影。对于无法读取元数据的损坏曲目，若请求了 `artists` 或 `albumArtists`，其返回值为空数组 `[]`。
+
+重复字段名会去重。`rating` 仅在被请求（或省略列表）时才计算。
+
+**校验**一律 resolve，不会 reject Promise。未知的名字得到：
+
+```javascript
+const bad = await fb.library.query('artist HAS Beatles', undefined, 100, [
+    'absolutepath',
+    'Rating',
+]); // 大小写不符
+// {
+//   success: false,
+//   error: 'fields contains unknown field names',
+//   code: 'INVALID_PARAMS',
+//   details: { unknownFields: ['absolutepath', 'Rating'] }
+// }
+```
+
+`details.unknownFields` 只在"未知字段名"这一类出现；其余非法形状只返回 `success` / `error` / `code` 三键。
+
+**使用建议**
+
+| 场景 | 建议的列表 |
+| --- | --- |
+| 过滤数万命中，只要路径 | `['absolutePath']` |
+| 搜索结果要在界面上展示（数百行、要全部列） | 省略该参数 |
+| 过滤 + 按专辑统计 | `['absolutePath', 'album']` |
+
+以 8 万行结果集实测：单字段投影使 wire 载荷从 45.1MB 降到 8.4MB，页面侧 `JSON.parse` 从 147ms 降到 37ms。
+
+### 大结果集
+
+**宿主主线程被占用的时长与响应体量成正比。** 行是在 worker 线程上构建的，成本在于把成品响应交给页面，实测每 MiB 15–27ms。唯一有效的方向是控制单次返回的字节数，做法有两个：投影（`fields`，从全字段降到 `['absolutePath']` 后载荷约缩到 1/4.6）与分页（`offset` / `limit`，占用只与该页行数成正比）。
+
+**受支持的访问模式**：分页、投影任一或并用后，每次调用约 ≤2 万行，此时单次调用的主线程占用低于 100ms。超出这个量级请分页。
+
+::: warning 32 位（x86）宿主须规避大结果集
+32 位进程的用户态地址空间约 2–4 GB，而一次全库全字段响应在解析期间会同时以多种形态驻留。估算瞬时峰值：8 万行全字段 ≈178 MB、投影到 `['absolutePath']` ≈39 MB；165,306 行 ≈367 MB / ≈80 MB。这些叠加在宿主既有占用之上，而 `search()` 会再翻一倍。在 32 位宿主上，查询可能命中上万行时请投影或分页，**不要**对全库发全字段请求。64 位宿主没有这个限制，但主线程占用同样存在。
+
+峰值是按解析模型推算的上界，不是实测工作集——请当作使用指引，而不是预算。
+:::
+
+## addToPlaylist(paths, playlistIndex?)
+
+签名：`fb.library.addToPlaylist(paths: string[], playlistIndex?: PlaylistRef): Promise<LibraryAddToPlaylistResponse>`
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| paths | string[] | 是 | 要追加的曲目路径，按此顺序；`\|subsong:N` 后缀选子曲目 |
+| playlistIndex | number \| string | 否 | 目标播放列表：序号，或 `fb.playlist.getAll()` 给出的 `guid`；省略时使用活动播放列表。跨异步生命周期调用时建议传入 `guid`，以避免列表并发增删导致目标错位 |
+
+根据文件路径将曲目追加至指定播放列表。目标路径无需已收录于媒体库中，文件不存在时仍执行追加操作。响应里的 `added` 是添加的曲目数。已上锁的列表以 `LOCKED` 失败，不添加任何曲目；超出最后一个播放列表的序号以 `INVALID_INDEX` 失败，省略 `playlistIndex` 且没有活动播放列表时以 `NO_ACTIVE_ITEM` 失败。
+
+```javascript
+await fb.library.addToPlaylist(['E:\\Music\\song.flac'], 0);
+```
+
+## getArtistAlbums(artist, limit?, options?)
+
+签名：`fb.library.getArtistAlbums(artist: string, limit?: number, options?: Omit<LibraryGetArtistAlbumsParams, 'artist' | 'limit'>): Promise<LibraryGetArtistAlbumsResponse>`
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| artist | string | 是 | 艺术家名，与每个原子标签值逐字节比较，区分大小写 |
+| limit | number | 否 | 专辑条数上限，分组完成后截断（默认 `100`）；没有 `offset` |
+| options.sort | string | 否 | `name`（默认）、`artist`、`year` 或 `trackCount`；取值无法识别时回退到 `name` |
+| options.match | `'exact' \| 'substring'` | 否 | `exact`（默认）要求整个原子值逐字节相等；`substring` 按包含匹配、大小写规则较宽；取值无法识别时直接拒绝，不回退 |
+
+返回指定艺术家参与的专辑列表。返回行的字段集与 `getAlbums` 一致，但不包含 `coverDataUrl` 与规范专辑的 `albumId`；`tracks` 列出该艺术家在本组中参与的曲目。若需获取封面，建议将返回项中的 `firstTrackAbsolutePath` 传给 `artwork.getForTrack`（`firstTrackPath` 可能为不受理的 `file-relative://` 格式）。
+
+`trackCount`、`duration` 与 `discCount` 仅统计该艺术家实际参与的曲目，而非整张专辑的总量；若该艺术家仅参与部分曲目，其统计值将不同于 `getAlbums` 的整专数据。每行通过 `tracks` 数组列出该艺术家参与的具体曲目成员，每项包含定位子曲目所需的 `path` 与 `subsong`。由于归组口径不同，此处不提供 `albumId`；完整分组规则参见 [`library.getArtistAlbums`](../api/library.md#library-getartistalbums)。
+
+```javascript
+const res = await fb.library.getArtistAlbums('The Beatles', 50);
+if (res.success === false) throw new Error(res.error);
+const { albums } = res;
+
+// 按年份从新到旧
+const recent = await fb.library.getArtistAlbums('The Beatles', 20, {
+    sort: 'year',
+});
+```
+
+## getArtistTracks(artist, limit?)
+
+签名：`fb.library.getArtistTracks(artist: string, limit?: number): Promise<LibraryGetArtistTracksResponse>`
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| artist | string | 是 | 艺术家名，匹配方式与 `getArtistAlbums()` 在 `match: 'exact'` 下相同 |
+| limit | number | 否 | 最多返回的曲目数，保留按媒体库顺序的前若干首（默认 `500`） |
+
+返回指定艺术家参与的曲目列表，结果按媒体库顺序填充至 `tracks`（`items` 是同一个列表）。`count` 表示本次返回条数，`total` 与其保持一致，不提供 `limit` 截断前的总数。若返回条数达到 `limit` 上限，表明可能存在更多匹配项。当 `artist` 为空字符串或媒体库未启用时，返回包含空数组的成功响应。
+
+```javascript
+const res = await fb.library.getArtistTracks('The Beatles', 100);
+if (res.success === false) throw new Error(res.error);
+const { tracks } = res;
+```
+
+## getCacheStats()
+
+签名：`fb.library.getCacheStats(): Promise<LibraryGetCacheStatsResponse>`
+
+宿主媒体库缓存与目录树索引的计数，供诊断用：是否保留了结果（`valid`、`tracksCached`、`artistsCached`、`statsCached`、`albumsCacheEntries`），宿主启动以来的 `cacheHits` 与 `cacheMisses`，以及目录树索引的状态（`treeIndexValid`、`rootsCached`、`treeIndexedTracks`、`treeSkippedTracks`、`treeLastBuilt`）。时间是自 Unix 纪元起的毫秒数。流派与封面从不保留，所以 `genresCached` 恒为 `false`，封面相关的计数恒为 `0`。
+
+```javascript
+const cache = await fb.library.getCacheStats();
+if (cache.success === false) throw new Error(cache.error);
+console.log(cache.cacheHits, cache.cacheMisses);
+```
+
+## getRandomTracks(count?)
+
+签名：`fb.library.getRandomTracks(count?: number): Promise<LibraryGetRandomTracksResponse>`
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| count | number | 否 | 抽取的曲目数（默认 `10`）；最多返回媒体库的曲目总数 |
+
+从整个媒体库随机抽取、互不重复的曲目，每次调用重新抽取，结果放在 `tracks` 里，`count` 是抽到的数量。媒体库未启用或为空时成功返回空列表。
+
+```javascript
+const res = await fb.library.getRandomTracks(25);
+if (res.success === false) throw new Error(res.error);
+const { tracks } = res;
+```
+
+## getRecentlyAdded(limit?, sortBy?)
+
+签名：`fb.library.getRecentlyAdded(limit?: number, sortBy?: LibraryGetRecentlyAddedParams['sortBy']): Promise<LibraryGetRecentlyAddedResponse>`
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| limit | number | 否 | 最多返回的曲目数（默认 `50`） |
+| sortBy | `'added' \| 'modified'` | 否 | `added`（默认）按 foo_playcount 的 `%added%` 排序，没有该值的曲目排在最后；`modified` 按文件修改时间排序 |
+
+按时间降序返回媒体库中最新添加或修改的曲目。若指定 `added` 但全库曲目均无 `%added%`，将自动回退为按文件修改时间排序，此时响应中的 `sortBy` 为 `modified` 且 `fallback` 为 `true`。`total` 反映媒体库当前曲目总数。
+
+```javascript
+const res = await fb.library.getRecentlyAdded(50);
+if (res.success === false) throw new Error(res.error);
+const { tracks, fallback } = res;
+```
+
+## invalidateCache()
+
+签名：`fb.library.invalidateCache(): Promise<LibraryInvalidateCacheResponse>`
+
+清除宿主内存中缓存的媒体库查询结果与目录树索引，相关端点在后续调用时将重新按需构建。当媒体库检测到文件变动时，宿主亦会自动执行失效处理。响应字段 `timestamp` 指示缓存清除时的 Unix 毫秒时间戳。
+
+```javascript
+await fb.library.invalidateCache();
+```
+
+## isEnabled()
+
+签名：`fb.library.isEnabled(): Promise<LibraryIsEnabledResponse>`
+
+foobar2000 媒体库是否启用，即是否配置了媒体库文件夹。
+
+```javascript
+const res = await fb.library.isEnabled();
+if (res.success === false) throw new Error(res.error);
+const { enabled } = res;
+```
+
+## rescan()
+
+签名：`fb.library.rescan(): Promise<LibraryRescanResponse>`
+
+调用 `library_manager::rescan()` 请求 foobar2000 重新扫描媒体库文件夹；foobar2000 SDK 已将该方法标记为弃用。媒体库自身具备文件变动跟踪机制，通常无需调用该方法。`refresh()` 是其等价别名。
+
+```javascript
+await fb.library.rescan();
+```

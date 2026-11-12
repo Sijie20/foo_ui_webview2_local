@@ -1,0 +1,579 @@
+# 更新日志
+
+## v2.2.0 (2026-11-11)
+
+### 新功能
+
+#### 键盘
+- **WebView 内的按键执行 foobar2000 的快捷键**：页面有焦点时，用户在「首选项 > 键盘快捷键」里绑定的命令照常执行；没有绑定快捷键的按键仍交给页面。焦点在输入框里时，打字与文本编辑键留给页面；焦点在输入框之外时，空格、字母、方向键这类单键也能执行快捷键。参与的按键由组件首选项「窗口 > 快捷键」选定，默认为含 Ctrl、Alt 或 Win 的组合（包括 Ctrl+方向键）与 F1 到 F24；单键需要开启「其他按键」。按住按键不放时，快捷键只执行一次。详见 [WebView 内的快捷键](./api/keyboard.md#webview-内的快捷键)。
+- **[`keyboard.setReservedKeys`](./api/keyboard.md#keyboard-setreservedkeys) 把组合留给页面**：列出的组合即使在 foobar2000 里绑定了快捷键，也交给页面处理，主题自己的快捷键因此优先于用户的绑定。列表归属于页面，页面导航、重载或所在窗口关闭时清空。
+- **`keyboard.setReservedKeys` 的 `all` 把全部按键留给页面**，适用于页面在自绘的快捷键编辑器里录制按键等场景。系统级热键与开发服务器模式下的 F12 仍然生效。
+
+#### 右键菜单
+- **右键菜单命令可以指定作用对象**：[`discovery.executeContextMenuCommand`](./api/discovery.md#discovery-executecontextmenucommand) 与 [`discovery.executeContextMenuByPath`](./api/discovery.md#discovery-executecontextmenubypath) 新增 `target`：
+  - `selection`：foobar2000 自己的上下文快捷键所用的选区。
+  - `nowPlaying`：只作用于正在播放的曲目。
+  - `playlistSelection`：只作用于活动播放列表的选中项。
+  - `auto`（缺省）：作用于正在播放的曲目，未播放时作用于活动播放列表的选中项，与原来的行为相同。
+
+#### 面板
+- **Default UI 编辑模式的占位符标明面板身份**：占位符显示面板名、页面来源与已开启的选项，同一布局里有多个 WebView 面板时可以据此区分。它使用 Default UI 的配色与字体，尺寸随 DPI 缩放，空间不足时省略次要的行。双击占位符打开面板配置。
+- **面板配置对话框可以新建模板、打开模板文件夹**：模板下拉框旁新增「新建...」与「打开文件夹」。新模板的名称沿用偏好设置页的规则：只能使用字母、数字、连字符和下划线，且不能与现有模板重名（不区分大小写）。新建的模板自动选中，点「确定」后才写入面板配置。
+- **面板配置对话框重新排版**：设置项分为「页面」「行为」两组，边框样式移入「行为」组。「允许此网站访问……」只在填写外部网址后显示；此前它始终显示，未启用时为灰色。
+
+#### 播放列表
+- **[`playlist.getAutoplaylistQuery`](./api/playlist.md#playlist-getautoplaylistquery) 能读出内置自动播放列表的查询与排序**：列表由 foobar2000 自带的 query/sort 客户端驱动时（例如在 Default UI 里创建或经 `playlist.createAutoplaylist` 创建的列表），`query` 为列表当前的查询语句，新增的 `sort` 为排序表达式，未设置排序时为空串。两者在每次调用时重新读取。对于其他提供者的列表与本组件托管的列表，`query` 与 `sort` 均为 `null`，原因见 `note`。早期版本对所有列表都返回 `query: null`，应答里也没有 `sort` 字段。
+
+### 变更
+
+- **[`keyboard.registerHotkey`](./api/keyboard.md#keyboard-registerhotkey) 拒绝会在所有程序里占用常用按键的组合**：组合必须包含 Ctrl、Alt 或 Win，媒体键可以单独注册。Ctrl+A、C、V、X、Y、Z，Ctrl+Shift+Z，Ctrl+Esc，Alt+F4、Alt+Tab 与 Alt+Space 同样被拒绝。被拒绝的组合以 `INVALID_PARAMS` 失败。这些组合此前能注册成功，但热键从未触发（见「修复」）。
+- **组合已被占用时，错误信息指明持有者**：组合已由本组件注册时，[`keyboard.registerHotkey`](./api/keyboard.md#keyboard-registerhotkey) 以 `OPERATION_FAILED` 失败，`details` 给出该注册的 `id` 与 `windowId`。组合被其他程序或 foobar2000 的全局快捷键占用时，同样以 `OPERATION_FAILED` 失败，`details.win32Error` 为 Windows 错误码。
+- **注册热键的窗口关闭时，热键随之注销**：此前窗口关闭后热键仍保持注册，按键事件改发给主窗口的页面。Default UI 或 Columns UI 布局里没有主窗口页面，关闭的面板会继续占用该组合，重建的面板也无法再次注册。
+- **[`keyboard.getRegisteredHotkeys`](./api/keyboard.md#keyboard-getregisteredhotkeys) 的热键条目新增 `windowId`**：注册该热键、接收其按键事件的窗口。
+- **Ctrl+P、Ctrl+O、Ctrl+N 按用户在 foobar2000 里的绑定执行**：此前页面有焦点时，这三个组合固定执行打开首选项、打开文件与新建播放列表，不随用户的绑定改变。现在它们与其他按键一样，执行「首选项 > 键盘快捷键」里设置的快捷键。没有绑定时，按键交给页面。
+- **F5 重载有焦点的页面，页面自行处理时除外**：此前焦点在页面里时，F5 是一次普通按键，只有焦点在页面之外才重载页面；开启开发者工具时由浏览器重载。现在页面先收到这次按键。页面的 `keydown` 监听都没有调用 `preventDefault()` 时，组件在各类窗口里都会重载页面。页面正在加载或加载失败时，F5 直接重载。详见 [WebView 内的快捷键](./api/keyboard.md#webview-内的快捷键)。
+- **`keyboard.registerShortcut` 已废弃，将在 3.0 移除**：它只登记组合，不会按它匹配任何按键。页面内的快捷键请监听 `keydown`。
+- **SMP 兼容层的 `fb.GetLibraryItems` 更快**：它改为经 `library.search` 分页读取，并且只读取句柄用到的字段。在约 10 万首曲目的媒体库上实测，耗时从约 4.2 秒降到约 0.8 秒。返回的曲目与顺序不变。
+
+### 修复
+
+#### 键盘
+- **[`keyboard.registerHotkey`](./api/keyboard.md#keyboard-registerhotkey) 注册的热键能够触发**：热键此前注册在 foobar2000 的主窗口上，组件不会收到该窗口的 `WM_HOTKEY` 消息，因此注册成功，`keyboard:hotkey` 却从未派发。现在热键注册在组件自己的消息窗口上，按下时事件发给注册它的窗口。页面导航或重载时，它注册的热键随之注销，重载后的页面可以再次注册同一组合。退出 foobar2000 时，全部热键注销。
+
+#### 标签写入
+- **WAV 标签写入不再毁坏非 ASCII 标签**：[`metadata.write`](./api/metadata.md#metadata-write)、[`metadata.writeBatch`](./api/metadata.md#metadata-writebatch)、[`metadata.removeTag`](./api/metadata.md#metadata-removetag)、[`metadata.removeField`](./api/metadata.md#metadata-removefield)、[`rating.set`](./api/rating.md#rating-set) 的标签回退、`lyrics.save` 的内嵌目标与 [`replaygain.clear`](./api/replaygain.md#replaygain-clear) 遇到写入后标签含非 ASCII 文本的 WAV 文件时拒绝写入，以 `NOT_SUPPORTED` 失败，`details.reason` 为 `wavInfoNonAscii`，文件保持不变。foobar2000 把 WAV 标签以 ASCII 存入 RIFF INFO 块，其他字符一律写成 `?`；它还会把 GBK 编码的 INFO 块按 Latin-1 读入，因此即使只修改其他字段，重写这类文件也会把原有标签永久替换为 `?`。标签全为 ASCII 的 WAV 文件照常写入，其他格式不受影响。
+
+#### 媒体读取与封面
+- **经目录映射加载的页面可以使用媒体流与封面地址**：页面经 `foo-ui-webview2.local` 这类目录映射加载时（打包的主题即是如此），宿主签发的媒体流地址与封面地址此前一律以 `ERR_FILE_NOT_FOUND` 失败。这两类地址现在使用主机 `fb2k-routes.invalid`，该主机不经过任何目录映射。这些地址对任何页面都是跨源地址，页面要从 Canvas 读取封面像素时，须给 `<img>` 设置 `crossorigin`。
+- **卡住的云端或网络读取不再阻塞本地读取**：封面与歌词的读取此前共用一条队列，读取云端占位文件或不可达的网络共享时一旦卡住，之后的本地读取都会超时，直到重启 foobar2000。网络共享与映射网络盘上的文件，以及仅在云端的文件，现在在单独的队列里读取。
+- **取封面不再下载仅在云端的文件**：对于本地磁盘上仅在云端的文件，[`artwork.getCurrent`](./api/artwork.md#artwork-getcurrent)、[`getByPath`](./api/artwork.md#artwork-getbypath)、[`getForTrack`](./api/artwork.md#artwork-getfortrack)、[`getByPlaylistItem`](./api/artwork.md#artwork-getbyplaylistitem)、[`getBatch`](./api/artwork.md#artwork-getbatch)、[`getAvailableTypes`](./api/artwork.md#artwork-getavailabletypes)、[`getAvailableArtwork`](./api/artwork.md#artwork-getavailableartwork) 与 `getMetadata` 不打开文件，直接按无封面返回。此前这些方法会下载整个文件。感谢 [@Sijie20](https://github.com/Sijie20) 报告。
+
+#### 播放列表
+- **[`playlist.replaceAllAndPlay`](./api/playlist.md#playlist-replaceallandplay) 播放 `playIndex` 指定的曲目**：此前写入的行会去重，并按用户设置的新增项顺序重排，而 `playIndex` 按重排后的行计数，重排结果与 `paths` 的顺序不同时就会播放另一首。现在各行保持 `paths` 的顺序；每条路径只对应一首曲目时，`playIndex` 即要播放的路径的下标。重复的路径保留，文件夹内的曲目按 foobar2000 展开文件夹的顺序加入。感谢 [@LYY-LZH](https://github.com/LYY-LZH) 报告。
+
+#### 面板
+- **Default UI 编辑模式下右键单击面板，弹出 Default UI 的标准编辑菜单**：菜单提供替换、剪切、复制与粘贴，「配置...」也在其中。此前只弹出「配置...」一项。
+- **编辑模式开启时新建的面板立即显示占位符**：此前新面板显示满尺寸的页面，右键单击由页面接收，无法打开面板配置。
+- **面板的透明区域跟随 foobar2000 的配色**：页面没有绘制背景的区域显示宿主当前的背景色：Default UI 面板为 Default UI 的背景色，Columns UI 面板为 Columns UI 的全局背景色。在首选项里修改配色后，这些区域立即随之改变。此前 Default UI 面板保持面板创建时的颜色，Columns UI 面板始终为白色。
+- **面板设置「透明背景」在面板创建时即生效**：保存为不透明的面板，在重启 foobar2000 或重建面板后仍为不透明；此前该设置只在切换时生效。不透明背景改为宿主的背景色，不再固定为深灰色（`#1e1e1e`）。
+- **新建、重命名模板的起名对话框跟随 foobar2000 的深浅色模式**：此前它始终为浅色。
+- **新建模板的起始页文字改为中性灰**：此前文字为白色，面板透明区域显示浅色背景时无法看清。已有模板不受影响。
+
+## v2.1.0 (2026-10-27)
+
+### 新功能
+
+#### JIT 会话与播放控制 <Badge type="warning" text="实验性" />
+- **文档绑定会话 ([`jitSession`](./api/jit-session.md))**：在页面重载后保留播放尝试与操作结果，将控制权绑定到调用文档，并支持窗口间显式交接。撤销下一条不停止当前曲目；临近曲尾、foobar2000 可能已选定下一条时，撤销操作以 `nextPreselected` 拒绝；下一条未就绪时，`skip` 拒绝请求，不影响原生播放队列。`jitSession.play` 的新资源仍在解析时，即使旧曲目已结束播放，新尝试仍保持等待；原生播放推进到已缓冲的下一条时，上一条未完成的尝试与操作标记为 `superseded`，不推断为播放结束（EOF）。`jitSession.release` 在缓冲清空后才返回应答；清空失败时以相同 `requestId` 重试会返回相同的错误。现有 `jitQueue` 方法保持原有行为。
+- **客户端状态同步 ([`JitSessionClient`](./sdk/jit-session.md))**：负责管理凭据、串行发送命令、补偿遗漏的状态并等待操作结果。等待期间若遗漏终态事件会自动补查；补查期间若再次出现事件缺口，也会继续查询直到状态对齐。
+- **原生播放接纳 (`prepareAdoption`)**：支持快照记录正在播放的曲目、原生播放队列中的各队列项及其来源播放列表，且不修改它们；通过 `jitSession.getNativeContext` 分页读取该快照，`jitSession.adoptNative` 可无缝接管正在播放的曲目；停止或释放会话时，剩余的队列项交还原生播放。`jitSession.playNative` 与 `jitSession.setNativeNext` 可播放或预排已接管上下文中的来源行或队列项，`jitSession.setNativeQueue` 可删除或调整待交还的队列项。来源已无可接续的内容时，最后一个队列项通过宿主保留的单曲列表 `__webview_restore__` 交还，播完即止。接管期间调用 `jitQueue` 方法照常执行，随后会话保持 `stopped` 状态，仅支持释放已接管的上下文。`getCapabilities()` 报告 `adoption: true`。
+- **失败重测机制 (`attemptRechecked`)**：播放尝试以 `unknown` 结束且未播满 1 秒时，宿主会重新打开该资源，报告是否再次失败及具体原因（`accessDenied`、`notFound`、`unsupportedContent`、`network`），以及 foobar2000 是否记录过其播放失败。`getCapabilities().failureRecheck` 为 `true`；`preciseFailure` 保持 `false`。
+- **后台持续运行**：`jitSession` 处于活跃状态时，最小化窗口、隐藏到托盘或锁屏不再冻结控制该会话的页面，页面持续响应 `jitSession:needNext`，播放不会在已缓冲条目播完后中断。页面照常隐藏并降低内存配额；会话停止或释放后恢复深度挂起。`getCapabilities().backgroundExecution` 为 `true`。
+
+#### 媒体库与增量同步
+- **本地副本增量同步 ([`library.getChanges`](./api/library.md#library-getchanges) / [`library.getTracks`](./api/library.md#library-gettracks))**：支持页面维护本地媒体库副本并按需拉取增量变更。`library.getChanges` 返回跨进程重启持久有效的修订号，以及指定修订号后新增、修改或移出的曲目；进程关闭期间产生的离线变更将在启动载入后同步返回。`library.getTracks` 支持单次按最多 5000 个句柄批量拉取行数据。使用说明见[本地副本的增量同步](./api/library.md#keeping-a-local-copy)。
+- **细粒度变更通知与句柄批处理**：[`library:itemsAdded`](./api/events.md#library-itemsadded)、`library:itemsRemoved`、`library:itemsModified` 与 [`metadb:changed`](./api/events.md#metadb-changed) 新增 `handles` 与 `truncated` 字段。`handles` 包含每首发生变更曲目的 `handle`；单次变更超过 5000 首时 `truncated` 为 `true`，`handles` 为空。将 `handles` 传给 `titleformat.evalFieldsBatch` 即可只读取变更的行。编辑标签不再重建 `library.getRoots` 与 `library.browseTree` 所用的目录索引。`fb-playlist-view` 会立即重读有变更的曲目行，无需等待页面滚动；SMP 兼容层的 `on_metadb_changed` 单次最多可接收 5000 首变更曲目（此前为 50 首）。
+- **第三方插件刷新免全量重建 ([`library:itemsModified`](./api/events.md#library-itemsmodified))**：新增 `fromHook` 字段。当 foo_playcount 等组件请求 foobar2000 刷新其提供的字段（而非曲目标签实际被编辑）时，该字段为 `true`。此类变化下，宿主仅作废已缓存的 `library.getAll` 列表，保留其余媒体库缓存；播放时写入播放次数和评分不再触发 `library.getRoots` 与 `library.getAlbums` 重建。SDK 媒体库树组件收到该事件时不再重载。
+
+#### 播放列表与并发控制
+- **数据版本与并发冲突防护 (`contentVersion`)**：`playlist.getTracks`、`getTracksAt`、`getSelectedTracks`、`getSelection`、`getMatchingRows`、`getGroupRuns` 与 [`queue.get`](./api/queue.md) 返回 `contentVersion`。无论是插入、删除、重排还是替换曲目行，即使总行数未变，版本号也会递增，避免不同版本读取的分页数据被错误拼接。`playlist.insertTracks`、`removeTracks`、`moveTracks`、`reorder`、`setSelection` 以及 `queue.remove`、`moveToTop`、`setContents`、`insertNext`、`playNow` 支持传入 `expectedVersion`：若目标内容在该版本后发生过变更，调用直接以 `STALE_TARGET` 失败且不作任何更改；调用成功时返回更新后的版本号。`playlist:itemsAdded`、`itemsRemoved`、`itemsReordered`、`itemsReplaced` 与 `playback:queueChanged` 事件均会附带新版本号。`playlist.playTrack` 与 `setFocusedTrack` 同样支持 `expectedVersion`。`queue.add` 以及传给 `queue.setContents`、`queue.insertNext` 的播放列表行项支持传入 `expectedPlaylistVersion`（即读取这些行时所属播放列表的 `contentVersion`）。SDK 对应方法已将 `expectedVersion` 作为可选参数置于末位。
+- **受管自动播放列表 ([`playlist.createManagedAutoplaylist`](./api/playlist.md#playlist-createmanagedautoplaylist))**：创建受管自动播放列表，其查询语句、排序规则与“保持排序”设置可通过 `playlist.getAutoplaylistConfig` 读取，并通过 `playlist.setAutoplaylistConfig` 修改。查询仍由 foobar2000 执行并随媒体库自动更新，但该播放列表要求保留安装 foo_ui_webview2。每次修改须传入所基于的 `revision`；若依据的版本已过时，调用以 `details.reason: 'revisionConflict'` 失败；配置更新后会触发 [`playlist:autoplaylistConfigChanged`](./api/events.md#playlist-autoplaylistconfigchanged) 事件通知新版本号。其他自动播放列表（包括 `playlist.createAutoplaylist` 创建的普通自动播放列表）不支持此类读写。
+- **原生自动播放列表编辑器唤起 ([`playlist.showAutoplaylistUI`](./api/playlist.md#playlist-showautoplaylistui))**：可按索引或 `playlistGuid` 打开指定自动播放列表的原生编辑器，且不切换活动播放列表、不开始播放。请求受理后立即返回；原生编辑器调用成功或失败随后通过 [`playlist:autoplaylistUIResult`](./api/events.md#playlist-autoplaylistuiresult) 事件通知调用页面（不反映用户最终保存还是取消）。`playlist.getAutoplaylistInfo` 新增 `editorAvailability` 与 `editorAvailabilityReason`，无需打开窗口即可判断编辑器是否可用。SDK 同步新增 `playlist.showAutoplaylistUI` 与 `playlist.onAutoplaylistUIResult`。
+- **路径展开状态追踪 ([`playlist:addComplete`](./api/events.md#playlist-addcomplete))**：事件携带 `status` 字段：成功为 `completed`；若展开出的曲目加入前播放列表被删除或锁定，则报告 `partial` 或 `failed`，并附带 `reason`（`targetRemoved`、`locked`）；用户取消展开时为 `cancelled`。
+
+#### 上下文与菜单
+- **菜单状态前置校验 ([`menu.runContextCommandById`](./api/menu.md))**：支持在运行前核对菜单状态：传入节点的 `path` 作为 `expectPath`，以及 `menu.getContextMenu` 新增返回的 `targetKey` 作为 `expectTarget`。如果在菜单打开后，曲目、该命令 ID 对应的命令或其可用状态发生变化，调用将直接以 `details.reason` 失败，不执行任何操作，避免误触发其他命令。未传入这两个参数的调用行为保持不变。SMP 兼容层的 `RunContextCommandWithMetadb` 与 `ContextMenuManager.ExecuteByID` 已改用该核对机制。
+- **原生命令执行回显**：`menu.runMainMenuCommand`、`menu.runContextCommand` 与 `menu.runContextCommandById` 的应答新增 `completion: 'unknown'`。命令已交由 foobar2000 原生执行，宿主不跟踪命令是否已完成，亦不跟踪弹出的对话框是否被取消。
+
+#### 窗口与桥接基础设施
+- **缩放比例与换算系数反馈**：`window.getZoom` 返回 `textScaleFactor`；`window.setDragRegions`、`window.setNoDragRegions` 和 `window.setClickThroughExcludeRegions` 返回 `scale`（即换算坐标矩形实际使用的缩放系数）。
+- **调用超时保护机制**：API 调用若超过 30 秒未收到宿主应答，将以 `code: 'TIMEOUT'` 拒绝，并在错误消息中指明方法名。注意该调用在宿主侧可能已执行完毕，详见[操作结果](./reference/bridge.md#operation-results)。
+- **托盘左键原生显隐 ([`tray.setClickAction`](./api/tray.md#tray-setclickaction))**：设为 `toggleMainWindow` 后，左键单击托盘图标由宿主直接隐藏或显示主窗口，不经页面代码，页面挂起时也能响应；双击只切换一次。默认的 `event` 仍派发 `tray:click` 与 `tray:doubleClick`。该设置可在 `tray.create` 之前调用，`tray.destroy` 会将其重置为 `event`；面板中调用以 `PANEL_MODE_UNSUPPORTED` 失败。切换前请先从原有的点击处理函数中移除窗口命令。
+
+### 变更
+
+- **拖放能力原因枚举精简**：`dnd.getCapabilities` 与 `dnd:capabilitiesChanged` 的 `pathsUnavailableReason` 类型定义移除 `displaced`（宿主从未返回过此值）。若 TypeScript 代码中存在与 `'displaced'` 的比较逻辑，移除该比较分支即可。
+- **播放列表标准列 ID 规范**：`fb-playlist-view` 不再将“播放次数”“首次播放”“最近播放”“添加日期”“等级”等中文汉化显示名作为列 ID。请使用标准列 ID：`play_count`、`first_played`、`last_played`、`added` 与 `rating`；或将 `fb.playlist.getAvailableColumns()` 返回的 `pattern` 配置到 `formats` 中，详见[播放列表组件](./components/playlist.md)。
+- **非本机面板 URL 权限门禁**：若面板覆盖的页面 URL 位于非本机地址（非 `localhost`、`127.x.x.x`、`[::1]`），须在[面板配置](./how-to/panels.md)中勾选“允许此网站访问 foobar2000 和这台电脑”后方可调用 API；未勾选前页面虽可正常渲染，但所有 API 调用均以 `ORIGIN_DENIED` 拒绝。升级前已保存的网址默认保留信任。修改为其他网站或取消勾选后，确认对话框即可立即生效，无需重启 foobar2000。
+- **主菜单命令按完整身份寻址 ([`menu.runMainMenuCommand`](./api/menu.md#menu-runmainmenucommand))**：按斜杠分隔的路径寻址时须匹配全部上级菜单，前缀不符时不再退而匹配同名的叶子命令。按 GUID 寻址动态叶子须同时提供 `guid` 与 `subGuid`，动态容器不可执行。按名称或路径执行成功时，应答同样带 `guid`。菜单树中主菜单项的 `executable` 表示其地址唯一且完整，与该项是否可用无关；`unaddressableReason` 新增 `ambiguousMatch`、`missingDynamicIdentifier`、`dynamicParent` 与 `incompleteHierarchy`，有歧义的项列出 `addressCandidates`，仅供诊断。`discovery.executeMainMenuCommand` 遇到歧义或禁用的命令时，分别以 `MENU_MATCH_AMBIGUOUS`、`MENU_ITEM_DISABLED` 失败。菜单状态无法读取时，`menu.getMainMenu`、`menu.runMainMenuCommand` 与 `discovery.executeMainMenuCommand` 以 `OPERATION_FAILED` 失败，不再当作该项可用。
+- **面板中的 `window.focus`**：在 DUI/CUI 面板中省略 `windowId` 调用 [`window.focus`](./api/window.md#window-focus) 时，会把 foobar2000 主窗口切到前台，不再以 `PANEL_MODE_UNSUPPORTED` 失败。调用成功只表示已发出请求，Windows 仍可能拒绝切换前台。
+
+### 修复
+
+#### 窗口渲染与高 DPI 适配
+- **文本缩放拖动区与像素比对齐**：修复 Windows 文本大小（设置 → 辅助功能 → 文本大小）大于 100% 时独立窗口的缩放与拖动判定异常。此前独立窗口会将标题栏自绘按钮误判为拖动区域（越靠右偏差越大），且 `devicePixelRatio` 大于实际页面缩放。现已支持随文本大小正确缩放，与面板和后台窗口保持一致，`app-region` 区域精确贴合；运行中调整文本大小亦可动态跟随。
+- **自定义拖动区域缩放换算修正**：修复 `window.setDragRegions`、`window.setNoDragRegions` 与 `window.setClickThroughExcludeRegions` 矩形计算，改为按页面的 `devicePixelRatio` 换算坐标矩形（综合计入页面缩放与 Windows 文本大小）。此前仅按窗口 DPI 换算导致缩放不为 100% 时坐标错位；页面自乘缩放倍数的逻辑应予移除。`window.setMaximizeButtonRegion` 亦同步计入文本大小。
+- **弹出窗口 URL 参数追加修复**：修复 `window.createPopup` 打开已含查询参数（如 `page.html?mode=1`）或哈希片段的页面时 URL 拼接错误的问题。`windowId` 参数现能正确追加为 `&windowId=...`，避免出现双重 `?` 导致页面无法读取自身 `windowId`。
+- **托盘图标缺失时的窗口保护**：修复启用“最小化到托盘”或“关闭到托盘”但未创建托盘图标时的窗口失踪问题。未调用 `tray.create` 时，最小化或关闭窗口回退为最小化到任务栏，避免窗口被隐藏后无法恢复。调用 `tray.destroy` 时，若主窗口当前正处于托盘隐藏状态，也会自动恢复显示。
+- **系统盘媒体文件权限放宽**：优化文件路径权限判定。`shell.showInExplorer`、`shell.openWith`、`clipboard.writeFiles` 与 `artwork.getFolderImages` 的路径检查调整为 [`MediaRead`](./reference/permissions.md) 权限级别（此前为 `Read`）。媒体库或播放列表中位于系统盘上的音频文件现支持在资源管理器中定位、用外部程序打开及复制到剪贴板；系统盘中非受信任目录的其他路径仍保持拦截。
+- **Windows 10 材质与圆角回退**：在 Windows 10 上请求 Mica、Mica Alt 或 Acrylic 时改用纯色背景，宿主也不再请求圆角；窗口能力中的 `supportsCornerPreference` 与 `supportsMicaAlt` 在该系统上为 `false`。Windows 11 行为不变。
+- **弹出窗口拖边改尺寸**：设置了 `behavior.noActivate` 或进入过点击穿透模式的弹出窗口，拖动边缘改尺寸时不再进入 Windows 的模态尺寸循环，页面在拖动过程中持续渲染；其他弹出窗口在拖动中合并过密的尺寸更新，并始终应用最终尺寸。
+
+#### 运行时与诊断稳定性
+- **WebView2 创建失败原生对话框**：修复独立窗口模式下 WebView2 创建失败（如未安装运行时）时的白屏/隐形问题。现在会弹出原生错误对话框说明原因并给出操作建议，支持一键复制诊断信息、打开组件首选项或控制台。此前窗口保持全透明无任何反馈。
+- **运行时不可用原生兜底菜单**：修复 WebView2 不可用时窗口缺少兜底交互的问题。在窗口客户区右键可弹出原生兜底菜单，提供首选项、控制台、重新加载界面、错误详情及退出选项。
+- **启动生命周期日志完善**：profile 目录下的 `webview_lifecycle.log` 会在初始化开始与失败时记录组件版本、foobar2000 版本、Windows 内部版本号、WebView2 运行时版本、实际生效的数据目录、DPI 感知状态、兼容性选项、WebView2 环境变量及提权状态；创建环境失败时会记录对应 HRESULT 错误码。
+- **自定义菜单崩溃防护**：修复调用 `ui.showCustomMenu` 时特定场景下可能引发崩溃的问题。感谢 [@MoveToEx](https://github.com/MoveToEx) 报告。
+- **慢速存储封面墙无响应优化**：修复媒体位于低速网络存储或挂载网盘时封面墙可能导致主窗口无响应的问题。感谢 [@Sijie20](https://github.com/Sijie20) 报告。
+- **网络共享超时主线程防卡死**：修复访问离线网络共享或未连接映射盘时的界面卡顿问题。`file.read`、`file.exists`、`file.list` 与 `file.getInfo` 在等待网络超时期间不再阻塞主线程（此前可能导致启动时界面延迟逾 20 秒）；控制台输出的慢调用告警现会附带具体路径。
+- **歌词读取移出主线程**：`lyrics.get` 与 `lyrics.exists` 改在后台线程读取标签与歌词文件，媒体位于低速存储或云盘时不再卡住窗口。
+- **本地媒体读取不再探测无关网络盘**：检查本地媒体路径时不再逐一打开全部映射的网络共享，未连接的映射盘不再拖慢本地文件的读取。
+
+#### JIT 队列机制
+- **影子列表行归属识别**：修复 `jitQueue` 会话判定机制，改为依据曲目在影子播放列表中的行项而非单纯按路径识别。以原生路径开启的会话不再意外中断；重播当前曲目不再消耗已缓冲的同文件下一首；在其他播放列表播放相同文件会正常结束当前会话。
+- **带子曲目路径准确起播**：修复 `jitQueue.playNow` 与 `jitQueue.enqueueNext` 对含子曲目路径（`path|subsong:N`）的解析。此前本地路径会误播为子曲目 0，带查询参数的网络流地址无法起播，现均可准确起播指定子曲目。
+- **解析竞态与取代处理**：修复 `jitQueue` 解析中曲目被取代时的竞态问题。尚未完成解析的条目若被后续的 `playNow`、`enqueueNext`、`stop`、`clear`、`preloadBatch` 或手动切歌/离开列表所取代，不再追加至播放队列，不触发错误事件，已被替换的下一首不会将旧资源重新写回缓冲。
+- **连续调用冲突解决**：修复 `jitQueue.playNow` 连续调用时的排队冲突。前一次调用仍在解析时再次调用不再直接以 `OPERATION_FAILED` 失败，新请求会自动取代前一次解析。
+- **原生播放队列完整保留**：修复 `jitQueue.playNow` 与 `jitQueue.skip` 覆盖原生播放队列的问题。播放指定曲目或跳过已缓冲曲目时，原生播放队列条目得以完整保留。JIT 曲目播放完毕后将优先顺延播放原生队列中的条目，会话随之正常结束。若无已缓冲曲目，`skip` 回退执行 foobar2000 原生“下一首”指令。
+- **迟到解析结果打断防护**：修复原生播放推进时迟到的 `jitQueue` 解析结果打断新曲目的问题；重播当前曲目时，正在异步解析的下一首条目仍会妥善保留。
+
+#### 媒体库与播放列表
+- **启动载入状态字段校正**：修复 `library.getStatus` 的 `initialized` 字段，调整为准确反映启动时是否已完成媒体库载入（此前仅重复反映 `enabled`）。
+- **非法 UTF-8 标签容错**：修复标签包含非法 UTF-8 字节时的容错处理。专辑列表、元数据读取与歌词现在仍可正常返回。异常字符以替换字符（U+FFFD）安全显示，不修改原始音频文件。
+- **损坏重名专辑独立性保护**：修复元数据损坏导致重名的专辑被错误合并的问题。此类专辑现仍保持独立身份；SDK 与媒体库树加载曲目时会保留其独立性，并完整保留 CUE 内嵌子曲目。这类专辑行带有 `albumId`，传给 `library.getAlbumTracks` 即可读取该专辑的曲目。
+- **异常编码标签序列化容错**：修复编码异常标签导致元数据序列化中断的问题。名称异常的标签按字段略过，不覆盖正常字段；异常标签值或编解码器信息不再阻断异步元数据批次结果的序列化。
+- **展开进度取消事件补全**：修复 `playlist.addPathsAsync` 展开播放列表文件过程中取消进度对话框时不派发完成事件的问题。取消操作现会准确派发 `status: 'cancelled'` 的 `playlist:addComplete` 事件。
+- **压缩包内曲目读取**：路径按 [`MediaRead`](./reference/permissions.md) 检查的方法现可接受压缩包内的曲目（`unpack://…`）与便携版相对路径（`file-relative://…`），宿主按压缩包的实际位置检查权限；此前这类调用一律以 `PERMISSION_DENIED` 失败。嵌套压缩包与名称含非 ASCII 字符的压缩包路径也能正确解析。
+- **便携版 profile 位于系统目录**：便携版 foobar2000 装在 `C:\Program Files`、`C:\Program Files (x86)` 或 `C:\ProgramData` 下时，页面可以读写其 profile 目录；安装目录本身仍被拦截。系统盘的可读文件夹新增“图片”。
+- **整轨波形按实际解码格式生成**：`audio.generateFullWaveform` 与 `audio:fullWaveformReady` 按解码器实际输出的 PCM 格式划分波形窗口，`sampleRate` 与 `channels` 也报告该格式，可能与文件的标称值不同。此前按标称采样率划分，两者不一致时波形与曲目对不齐。
+
+#### 拖放交互
+- **独立窗口内部拖放重排**：修复独立窗口内原生拖拽重排失效的问题。页面内部发起的拖动在 `dropEffect: 'move'` 模式下可正常放下，拖动重排序行与标签页不再误显禁止光标或丢失 `drop` 事件。来自外部程序的拖拽仍按复制处理；面板嵌入模式行为暂未变动。
+- **未处理元素拖放拦截**：修复未明确监听文件拖放的文本框与 `contenteditable` 元素误收拖放的问题。未处理文件的元素现在会与其他区域一致拒绝放下（光标显示禁止，不派发 `dnd:drop` 事件）。原生文件上传框仍支持拖入文件，文本拖拽选区填充不受影响。
+
+## v2.0.0 (2026-10-06)
+
+自本版本起，foo_ui_webview2 遵循语义化版本，2.x 系列内不再包含破坏性变更。详见[版本与兼容性](/zh/reference/versioning)。
+
+::: warning 本版的破坏性变更
+- 传入未声明的参数键（`_` 开头的除外）、值类型错误或缺少必填项时，调用以 `INVALID_PARAMS` 失败，`error` 指明出错的参数。此前多余的键会被忽略。
+- 仅宿主信任的页面可以调用 API。打开者不信任的 `http(s)` 弹出窗口、从受信任来源跳走的页面、`file://` 页面，以及开发模式下不在所配置开发服务器上的页面，调用立即以 `ORIGIN_DENIED` 失败，且收不到事件。详见[哪些页面能调用 API](/zh/reference/security#哪些页面能调用-api)。
+- SDK 的列表方法改为返回宿主的信封，失败时不再抛错，涉及 `playlist.getAll`、`getTracks`、`getSelectedTracks`、`getAvailableColumns`，`output.getDevices`，`system` 与 `config` 的列表方法，以及 `playcount.get`。请从对应字段读取列表，或使用 `unwrap`。
+- SDK 生成的 `XxxResponse` 改为 `XxxSuccess | ApiFailure`，须先判断 `success` 才能读取字段。部分事件载荷类型收窄，`artwork.getAvailableArtwork` 须传 `path`，`metadata.embedArtwork` 须传 `opts`，`FbBaseElement._sub` 只接受 `FBEventName` 中的事件名。以上仅影响 TypeScript 编译。
+- 无宿主环境下，SDK 调用返回 `{ success: false, code: 'NOT_SUPPORTED', error, details: { method } }`，不再返回 `{ mock: true, method }`。如需在假数据上运行，请将替身赋给 `window.fb2k`。
+- 曲目事件改发共享的 `Track`，移除 `id` 与 `fullPath`，请改为读取 `handle`。涉及 `playback:trackChanged`、`playback:edited`、`playback:itemPlayed`，以及 `selection:changed` 的 `track` 与 `nowPlaying`。
+- `library.getAlbumTracks` 改为接收 `library.getAlbums` 返回行的 `name`（传给 `album`）与 `albumArtist`，两者必填，不再接受 `artist`；结果以 `albumArtist` 代替 `artist`。
+- 以下调用的失败方式有变：
+  - 播放列表锁定时，`library.addToPlaylist`、`playback.playPath` 与 `playback.playPaths` 以 `LOCKED` 失败（此前报成功）；`queue.addPaths` 以 `LOCKED` 失败（此前为 `OPERATION_FAILED`），`playlist` 与 `isLocked` 移入 `details`。
+  - 无活动播放列表时，`queue.add` 以 `NO_ACTIVE_ITEM` 失败（此前为 `INVALID_INDEX`）。
+  - `artwork.getByPlaylistItem` 的播放列表序号越界时以 `INVALID_INDEX` 失败（此前为 `NOT_FOUND`）。
+  - 负数行号与队列位置以 `INVALID_PARAMS` 失败（此前被丢弃，`playlist.reorder` 与 `reorderPlaylists` 则为 `INVALID_INDEX`）。
+  - 右键菜单给出的 `handles` 全部不可用时以 `INVALID_PARAMS` 失败，不再改用正在播放的曲目、选中项或播放列表。
+- 仅在页面的 `dragover` 处理中调用了 `preventDefault()` 的位置接受文件放下；其他位置显示禁止光标，不发 `dnd:drop`。
+- `lyrics.save` 不再接受 `config`，`all` 只写 `file` 与 `embedded`；子曲目不再自动读取编号或整张镜像共用的歌词文件，请通过 `filename` 指定。已有歌词不会被删除，详见[迁移说明](/zh/api/lyrics#从旧版本迁移)。
+:::
+
+### 新功能
+
+- 支持按 GUID 指定播放列表。`playlist.getAll`、`getActive`、`getPlaying`、`create`、`duplicate`、`createAutoplaylist` 返回 `guid`；作用于单个播放列表的方法（含 `library.addToPlaylist`、`queue.add`、`queue.addPaths`、`artwork.getByPlaylistItem`）接受 `playlistGuid`，列表已删除时以 `NOT_FOUND` 失败。
+- 以序号报告播放列表的应答同时提供 `playlistGuid`；`playlist:*` 事件同样带 GUID（`playlistGuid`、`guid`、`newGuid`、`guids`）。
+- `playlist.setActive`、`playlist.rename` 接受 `playlistGuid`；`playlist.reorderPlaylists` 新增 `newOrderGuids`；`queue.setContents` 与 `queue.insertNext` 的条目接受 `playlistGuid`。
+- 新增 `playlist.getMatchingRows`（返回符合查询的行）与 `playlist.getTracksAt`（按行号读取曲目）。
+- SDK：接受播放列表的方法支持 `PlaylistRef`（序号或 GUID）；`<fb-playlist-view>` 与 `<fb-playlist-tabs>` 按 GUID 定位播放列表。
+- 播放位置新增 `hostTime`（Unix 毫秒，与 `Date.now()` 同一时钟），见于 `playback.getPosition`、`playback.setPosition`、`playback:seeked`、`playback:timeHighRes` 与 `playback:stateChanged`；SDK 新增 `PlaybackClock`，用于推算两次更新之间的播放位置。
+- `playback:stateChanged` 新增 `canSeek`。
+- 本地媒体（实验性，后续版本可能变化）：新增 `media.getStreamUrl` 与 `media.getContainerInfo`，SDK 新增 `MediaElementFollower` 与 `canPlay`。见 [Media 媒体 API](/zh/api/media) 与 [本地媒体](/zh/sdk/media)。
+- PCM（实验性，后续版本可能变化）：新增 `audio.decodePcm`，把曲目或其中一段解码为 float32 PCM；新增 `audio.subscribeStream`，订阅 foobar2000 正在播放的音频。样本经共享缓冲送达，SDK 以 `PcmBuffer` 与 `PcmStream` 读取。
+- `audio.subscribeSpectrum` 新增 `output: 'bins'`，输出原始 FFT 频点；`channels: 'stereo'` 时分 `left` 与 `right` 输出。SDK 回调接收 `SpectrumBinsFrame`。
+- `metadata.write` 与 `metadata.writeBatch` 支持以字符串数组写入多值标签，空数组删除该标签。
+- 曲目行新增 `albumArtists`，`library.query`、`library.search` 与 `playlist.getTracks` 的 `fields` 均可选用。
+- `lyrics.get` 与 `lyrics.exists` 新增 `filename`，可指定歌词文件。
+- 新增 `webview.getSource`，返回页面的加载来源。
+- 新增 `window.setMaximizeButtonRegion`，使页面自绘的最大化按钮在 Windows 11 上支持贴靠布局。
+- `window:stateChanged` 新增 `windowId`。
+- `file.write`、`fb.file.writeBinary` 与 `fb.file.writeDataUrl` 新增 `atomic: true`，不可与 `append` 同用。
+- 新增 `tray.setMenuZones`，一次替换整个托盘菜单。
+- `dnd:enter`、`dnd:drop` 与 `dnd.getPathsAsync` 新增 `source`，区分本页面（`'self'`）、同一 foobar2000 的其他窗口（`'other-window'`）与外部（`'external'`）的拖动。
+- 便携版改为使用各自 profile 目录下的 WebView2 数据，支持多个实例同时运行。首次启动时复制共用目录中的网页数据；共用目录仍被其他 foobar2000 占用时，改为以空数据启动，控制台会写明两个目录的位置。`config.set` 保存的设置不受影响。
+- 文档站的 API 参考按命名空间分页，新增 SDK 类型参考、入门教程，以及从实时 PCM 流计算频谱的示例。
+
+### 变更
+
+- `library.getAlbums` 与 `library.getAlbumTracks` 共用同一份分组结果，再次打开同一张专辑不再扫描媒体库。
+- `library.getAlbumTracks` 的结果新增 `row`，曲目按碟号、曲号、媒体库顺序排列。
+- `library.addToPlaylist`、`playlist.addHandles` 与 `playlist.insertTracks` 改为按媒体读取校验路径，有路径被拒时整次调用以 `PERMISSION_DENIED` 失败。
+- `playlist.reorder` 与 `playlist.reorderPlaylists` 的 `newOrder` 含重复项时以 `INVALID_PARAMS` 失败。
+- 曲目事件载荷新增 `artists` 与 `rating`，所有字段始终存在。
+- `audio:dspPresetChanged` 与 `playlist:defaultFormatChanged` 改为发送空对象（此前为 `null`）。
+- 解析器拒绝的查询以 `INVALID_PARAMS` 失败并带 `details.param: 'query'`，适用于 `playlist.getMatchingRows`、`library.search` 与 `library.query`。
+- 超过 259 个字符的路径以 `OPERATION_FAILED` 失败，`details.value` 为 206；`file.copyAsync`、`file.moveAsync` 与 `file.deleteAsync` 报告原因 `path-too-long`。详见[路径长度](/zh/api/file#路径长度)。
+- `file.read` 与 `file.write` 无法打开文件时，在 `details.value` 中提供 Windows 错误码。
+- 歌词的 `filename` 按 Windows 文件名规则校验：允许名称内部的句点，拒绝末尾的句点或空格。
+- 保存歌词会使读取缓存失效。
+- 频谱的频带输出保留以兼容，数值不变，文档将其列为旧接口。
+- 宿主拒绝 `fb2k.invoke` 请求时，`Error` 带 `code` 属性（如 `METHOD_NOT_FOUND`、`INTERNAL_ERROR`）。
+- SDK 的 `library.getAll` 失败或超时时返回 `OPERATION_FAILED`，不再 reject；`playlist.getTracksPage` 已弃用，`getTracks` 返回相同的分页响应。
+- 读不出序号的 `|subsong:N` 后缀会被去掉，路径指向第一首。
+- 移除 `audio.generateWaveform`（此前每次调用都以未实现失败），请改用 `audio.generateFullWaveform`。
+
+### 修复
+
+- 修复弹出窗口与面板收不到 `menu:select`、`menu:dismiss`、`menu:valueChanged` 的问题，这些事件现在发给打开菜单的页面。
+- 修复弹出窗口与面板开启 JIT 会话后收不到 `jitQueue:*` 事件、播完第一首即停止的问题。
+- 修复面板页面收不到 `http:response` 与 `http:downloadComplete` 的问题。
+- 修复以 Default UI 或 Columns UI 为界面时，面板页面收不到 `app:beforeQuit` 的问题。
+- 修复同一 foobar2000 窗口中有多个面板时，各面板被识别为同一个的问题。
+- 修复弹出窗口中 `window.getMode` 的 `windowId` 恒为 `main` 的问题。
+- 修复弹出窗口中的 `<fb-titlebar>` 与 `<fb-window-controls>` 跟随主窗口最大化状态的问题。
+- 修复连不上开发服务器时，弹出窗口停留在浏览器错误页的问题。
+- 修复带用户名或密码的地址可冒充受信任来源的问题。
+- 修复 `LYRICIST` 标签被当作歌词读取的问题。
+- 修复 `playback.playPaths` 仍播放已报告为跳过的路径的问题。
+- 修复播放列表锁定时，`playlist:addComplete` 的 `addedCount` 计入被拒曲目的问题。
+- 修复以暂停状态开始播放时，`playback:stateChanged` 报告 `playing` 的问题。
+- 修复事件文本含非法 UTF-8（如网络电台的流标题）时事件无法发出的问题，非法字节现在替换为 U+FFFD。
+- 修复 `metadb:changed` 对无元数据的曲目缺少播放统计评分的问题。
+- 修复行或播放列表删除、移动后，`queue.get` 报告错误播放列表位置的问题。
+- 修复选择不在活动播放列表中时，`selection.getViewingTrack` 报告活动列表却没有行号的问题。
+- 修复 `playlist.playTrack`（`deferred: true`）在起播前有列表增删时播放错误行的问题。
+- 修复 SMP 兼容层的 `RemovePlaylistSelection` 带 `crop` 且读不出选择时清空整个列表的问题。
+- 修复 `discovery.executeContextMenuByPath`、`titleformat.eval` 系列方法与 `replaygain.get`、`clear`、`scan` 无法作用于多曲目文件中第一首以外曲目（`|subsong:N`）的问题。
+- 修复 `playcount.get` 与 `getBatch` 的失败行未回显请求路径的问题。
+- 修复主窗口不在前台时 `taskbar.flash` 报告失败的问题。
+- 修复页面重载或跳转后，其打开的端口仍然保留的问题，端口现在随页面关闭并发出 `port:disconnected`。
+- 修复 `fb2k.on` 返回 `undefined` 的问题，现在返回移除该监听的函数。
+- 修复宿主拒绝拖出时，页面内的拖动也被取消的问题。
+- 修复从资源管理器长时间拖动后拖影残留、页面无响应的问题。
+- 修复文件放到页面未处理的位置时，在另一个窗口中打开的问题。
+
+## v1.14.0 (2026-10-06)
+
+::: warning 本版的破坏性变更
+- `library.getArtistAlbums`、`getArtistTracks` 与 `getAlbumTracks` 改为精确匹配：逐字节比较，区分大小写，`*`、`?` 不再作为通配符。如需在 `getArtistAlbums` 中沿用原有的子串匹配，请传入 `match: 'substring'`。
+- `library.getArtistAlbums` 返回行中的 `artist` 改为专辑艺术家（`album artist` 首值，缺失时取 `artist` 首值）。
+- `library.getArtistAlbums` 改为先排序、再按 `limit` 截断，截断时返回的专辑可能与此前不同；`limit: 0` 返回空列表。
+- `queue.get` 中不带播放列表位置的条目，其 `playlist` 与 `playlistItem` 为 `null`，请用 `item.playlist == null` 判断。
+:::
+
+### 新功能
+
+- 支持将曲目作为真实文件拖出窗口：先用 `dnd.prepareDrag` 换取一次性 token，再在 `dragstart` 中写入（SDK 为 `fb.dnd.applyDragToken`）。`dataTransfer.effectAllowed` 必须为 `'copy'`。
+- 新增 `dnd:dragEnded`，仅在宿主拒绝挂上文件时触发；SDK 用 `fb.dnd.onDragEnded` 订阅。
+- `dnd.getCapabilities` 与 `dnd:capabilitiesChanged` 新增 `dragOut` 与 `dragOutUnavailableReason`；拖出需要 WebView2 Runtime 144 或更新。
+- 新增 `queue.setContents`，以有序列表整体替换播放队列。
+- 新增 `queue.insertNext`，按路径或播放列表位置插入为下一首；已在队列中的曲目会被移动，不会重复入队。
+- 新增 `queue.playNow`，立即播放队列中的指定项。
+- `playback:queueChanged` 新增 `count`，重建类变化只广播一次。
+- 新增 `playlist.getGroupRuns`，一次返回整个播放列表的分组边界，不含曲目行。
+- `playlist.getTracks` 新增 `fields`，仅返回指定字段；未知字段名以 `INVALID_PARAMS` 失败，并列在 `details.unknownFields` 中。
+- `library.getArtistAlbums` 新增 `sort` 与 `match` 参数，响应新增 `artist`、`total` 与 `hasMore`；返回行补全专辑字段（`albumArtist`、`discCount`、`duration`、`genre`、`label`、`firstTrackPath`、`firstTrackAbsolutePath`），计数只统计该艺术家参与的曲目。
+- `library.getArtists` 新增 `includeAlbums`，为 `true` 时附带每位艺术家的专辑。
+- 支持查找按「艺术家 - 标题」命名的歌词文件，以及去掉子轨编号的共享 `.lrc`。
+- 频谱新增 `scale: 'db'`、`minFrequency` 与 `maxFrequency`，`fftSize` 上限提高至 65536；每帧带 `subscriptionId`、实际使用的参数、`streamTime` 与 `hostTime`。
+- `audio.getWaveform` 新增 `channels` 与 `points`。
+- 整轨波形更换 `method`、`signed` 或 `scale` 时不再重新解码，同一文件的并发请求合并为一次解码；新增 `audio.cancelFullWaveform`，应答带 `maxAmplitude`。
+- SDK：`fb.audio.subscribeSpectrum` 的退订函数带 `ready`；`fb.audio.generateFullWaveform` 接受 `signal`；新增 `playlist.getGroupRuns` 与 `playlist.getTracksPage`；`library.getArtistAlbums` 接受 `options`。
+- `dialog.openFolder` 新增 `defaultPath`，支持 `%music%`。
+- 自绘菜单中的评分、滑块与分段行支持鼠标滚轮调节。
+- 偏好设置页（`Display → WebView2 UI`）重做：改动点击 `Apply` 或 `OK` 后保存，`Reset page` 恢复默认值，`Cancel` 放弃改动。
+- 新增窗口、性能、开发者三个子页，支持设置默认缩放（50–200%）、启动时预热 WebView2 与 CDP 端口（1024–65535，默认 9222）。
+- 模板的新建、重命名与删除移至 `Manage...`，操作立即生效。
+
+### 变更
+
+- 后台模式、深度挂起、开发者工具、CDP 远程调试、开发服务器开关与 URL 从高级设置移至子页，原有设置自动沿用；HTTP 访问本地网络与无效 TLS 证书仍在 `Advanced → Tools → WebView2 UI` 中。
+- 切换组件语言改为点击 `Apply` 后写入，之后新打开的对话框使用新语言。
+- 正在使用的模板与被面板引用的模板不能重命名或删除；模板列表为空时不再自动创建 `default`。
+- 频谱按订阅的帧率准时推送；暂停或停止时先发一帧静音再停发；参数越界以 `INVALID_PARAMS` 失败。
+- `audio.getWaveform` 的 `duration` 须在 (0, 1] 秒内，否则以 `INVALID_PARAMS` 失败。
+- 隐藏到托盘期间，`window.getState` 报告 `minimized: true`，隐藏时多发一次 `window:stateChanged`。
+- `Allow insecure HTTP connections (disable HSTS)` 标为保留项，当前无实际效果。
+
+### 修复
+
+- 修复曲目所在目录下的外挂歌词与封面文件无法读取的问题，便携版同样适用（#15）。
+- 修复文件名含 `..` 的曲目被误判为路径穿越的问题（#17）；`lyrics.save`、`metadata.embedArtwork` 的 `filename` 与 `log.write` 的 `file` 按同一规则判断。
+- 修复名称含双引号的艺术家无法获取专辑与曲目的问题。
+- 修复 `library.getArtistAlbums` 截断时 `trackCount` 偏小、失败时缺少 `albums` 的问题。
+- 修复 `<fb-library-tree>` 在艺术家节点下混入其他艺术家专辑的问题。
+- 修复多个频谱订阅相互改变 `fftSize`、`bands` 与 `fps` 的问题。
+- 修复为路径过长的曲目生成整轨波形时 foobar2000 可能崩溃、不同曲目共用同一份波形的问题。
+- 修复隐藏到托盘后，原窗口所在区域无法点击的问题。
+- 修复以原生路径（如 `E:\...`）添加的曲目与播放列表中的同一文件无法对应的问题。
+- 修复 `playlist.addPathsSequential` 未按传入顺序添加的问题。
+- 修复 `playlist.addPathsAsync`、`library.addToPlaylist` 与 `audio.analyzeBPM` 忽略 `path|subsong:N` 的问题。
+- 修复播放列表行的 `rating` 与 `rating.get` 不一致的问题，两者现在都先读 foo_playcount。
+
+### 已知问题
+
+- 1.x 对页面来源的校验不完整：通过 `window.createPopup` 打开的 `http(s)` 网址会被直接信任，页面可以调用全部 API（包括 `shell.exec`）；开发模式下，本机任意端口上的页面也受信任；事件会推送给当前加载的任何页面，包括已跳转到其他来源的页面。这些问题已在 v2.0.0 修复，1.x 不再修复。请勿在弹出窗口中打开不受信任的网址。
+- 通过 `queue.insertNext` 的 `paths` 插入的曲目不带播放列表位置，播放完毕后将从插入前的位置继续播放。已知曲目在播放列表中的位置时，请改用 `items`。
+- 播放队列不会在重启后保留，这是 foobar2000 自身的行为。
+
+## v1.13.0 (2026-08-26)
+
+::: warning 本版的破坏性变更
+以下四项可能需要修改代码：
+
+- **`library.search` 不再把行数组重复一份 `items`。** 响应此前把同一批行以 `items` 与 `tracks` 两个键各带一份，内容逐字节相同，现在只发 `tracks`——与 `library.query` 一直使用的键一致。读 `result.items` 的代码请改读 `result.tracks`；新旧宿主的每一种响应形状都带 `tracks`，因此先读 `tracks` 的代码在仍发送两份的旧宿主上同样成立。带行数据的 search 响应载荷就此减半。
+- **`dialog.confirm` 现在 resolve `{ response }`，而不是 `{ confirmed }`。** 原先声明的类型是错的：宿主一直返回的是所点按钮在 `buttons` 中的零基索引，从未返回过 `confirmed` 标志，读 `result.confirmed` 的 TypeScript 代码读的是从未被填充过的字段。默认按钮集为 `['OK', 'Cancel']`，因此 `0` 表示确认、`1` 表示取消。任务对话框创建时未带 `TDF_ALLOW_DIALOG_CANCELLATION`，所以 Esc 与关闭按钮都关不掉它，每个结果都来自一次真实的按钮点击；`-1` 只出现在宿主的兜底路径上——连普通消息框都显示不出来的时候。
+- **`file.*` 的错误消息变了，且被拒绝的路径不再回显。** 该命名空间内所有裸写的错误信封统一改走标准错误信封，`std::filesystem` 异常只外传 Win32 错误号——异常文本与出错路径不再进入 payload 和宿主日志。路径安全拒绝现在形如 `file.read: path security denied for 'path': Access denied: protected system path`：给出方法名、出错参数（数组参数带下标，如 `items[2].destination`）与策略原因，调用方能判断是哪个实参被拒，而宿主不会把一个文件系统位置泄漏到页面可能转发出去的 payload 里。此前解析 `result.error` 取路径或匹配特定措辞的代码，需改用 `result.code` 配合 `result.details`。
+- **参数形状不对现在返回 `INVALID_PARAMS`，不再是 `PERMISSION_DENIED`。** 路径安全装饰器此前把「路径被拒」与「实参格式错误」报在同一个 code 下。靠 `PERMISSION_DENIED` 分支去捕获类型错误的处理逻辑，将不再在那里收到它们。
+
+:::
+
+### 异步文件操作
+
+- **新增 `file.copyAsync`、`file.moveAsync`、`file.deleteAsync` 与 `file.cancelOp`。** 实际工作在宿主 worker 线程上进行，复制一整张专辑不再像同步的 `file.copy` 那样冻结 UI。调用立即返回 `{ operationId, totalCount }` 回执；结果经 `file:opProgress` 陆续到达，最后由一个 `file:opComplete` 收尾。
+- 新事件 `file:opProgress` 与 `file:opComplete`（载荷：`operationId`、`op`、`done`、`total`、`results` / 三项计数与 `cancelled`）。结果是成批发送，绝不是每条一个事件：累积到 64 条待发或距上一批已过 100 ms 时发出，因此快速运行会收敛到约 `ceil(total / 64)` 个事件，而慢速运行则以额外事件换取持续推进的进度信号。`done / total` 可直接当进度分数用，最后一个不满批总在 `file:opComplete` 之前到达。
+- 每个请求条目上报一个结果，绝不是每个文件一个：目录条目在整棵树走完后才上报一次。每个结果按请求原样回显 `source`（以及 `destination`，`deleteAsync` 没有），`%变量%` 占位符原样保留不展开，因此可直接当查找键。`status` 取 `'ok'` / `'skipped'` / `'failed'`，`reason` 取自 `already-exists`、`not-found`、`permission`、`cross-volume`、`io-error` 与 `cancelled`。
+- **路径校验整批一致。** 任一条目未通过宿主的读或写检查，整个调用以 `PERMISSION_DENIED` 被拒且不产生 `operationId`——绝不会派发半批。`copyAsync` 按 `Read` 校验 `source`、按 `FileWrite` 校验 `destination`；`moveAsync` 两端都按 `FileWrite` 校验，因为 move 会删除源；`deleteAsync` 对每个路径按 `FileWrite` 校验。全进程最多 8 个操作同时进行。
+- copy 与 move 在目标已存在时行为不同：`copyAsync` 把目录合并进已存在的目录（其中已有的文件被跳过且不单独上报，该条目仍报 `status: 'ok'`），而 `moveAsync` 报 `skipped` / `already-exists`。`overwrite`（默认 `false`）只覆盖文件目标——Windows 无法原地替换目录，因此已存在的目录目标永不被替换。注意同步的 `file.move` 总是替换文件目标；异步形式不主动这么做。
+- 同卷内的 move 是一次重命名，无论文件多大都不花代价。跨卷时宿主回退为「先复制后删源」；该条目仍报 `status: 'ok'`，但带 `reason: 'cross-volume'`，让这份额外开销可见。
+- `deleteAsync` 默认 `moveToTrash: true`，它把每个路径交给 shell，因而需要主线程——这类删除在主线程上以 16 条一批进行并在批间让出。`moveToTrash: false` 在 worker 线程上删除，并且会删掉非空目录——同步的 `file.delete` 在该模式下拒绝这么做。
+- `file.cancelOp` 在批次中途生效，而不是等到批次末尾：copy 与 move 在一个文件之内停下，中止正在传输的文件并清除其半成品；delete 在下一个条目处停下。已完成的条目保留结果，其余每个条目都上报为 `skipped` / `cancelled`，且该次运行仍以带 `cancelled: true` 的 `file:opComplete` 收尾。关闭 popup 会取消该 popup 发起的操作；面板宿主没有这个钩子，因此其操作除显式取消外会跑到底。操作已结束或从未存在时返回 `cancelled: false`——这两种情况故意不作区分。
+- 只要发起调用的窗口还活着，两个事件都投递给它，这也正是 `results` 敢携带真实文件系统路径的前提。该窗口消失后宿主无法再解析它，会回退到主实例，因此迟到的事件可能出现在并未发起该操作的窗口里。有两条路径会跳过 `file:opComplete`——运行中宿主关闭，以及宿主侧意外失败——所以监听者若持有需要清理的状态，应自带超时，而不是无限期等它。
+
+### 元数据探测
+
+- **新增 `metadata.probeBatchAsync` 与 `metadata.cancelProbe`。** 落盘读在宿主 worker 线程上进行，几百个路径不再像 `metadata.readBatch` 那样卡住 UI。调用返回 `{ operationId, totalCount }` 回执；结果经 `metadata:probeProgress` 到达，最后由恰好一个 `metadata:probeComplete` 收尾。
+- 每条结果都上报信息来源——`infoSource: 'cached' | 'direct'`——这正是该端点对媒体库从未见过的文件有价值的原因。失败时按情况上报 `'not-found'` / `'unsupported-format'` / `'read-error'` 之一，而 `readBatch` 把这个区分合并成一个笼统的错误字符串。`includeTags`（默认 `true`）附上扁平标签表，上游键按 `readBatch` 的口径大写；只要技术信息时传 `false`。
+- 路径可带 `|subsong:N` 后缀、各自独立解析，并原样回显，因此可直接当查找键。与 `metadata.read` 不同，批量表面**不**认旧式 `#N` 子歌写法——它会把恰好以 `#<数字>` 结尾的无扩展名文件名切错。
+- 路径校验整批一致：任一路径未通过宿主的媒体读检查，整个调用以 `PERMISSION_DENIED` 被拒且不产生 `operationId`。不提供逐路径拒绝。
+- `metadata:probeProgress` 与文件事件用同一套「64 条或 100 ms」成批规则。`metadata:probeComplete` 总会到达，取消与失败路径上也一样。取消会中断正在进行的磁盘读而不是等它结束；尚未触及的路径永不上报，被中断的那个路径既不算成功也不算失败，因此取消的运行里 `successCount + failureCount` 会小于 `total`。
+
+### 拖放
+
+- **拖入的快捷方式现在会告诉你它指向哪里。** Windows 放进拖放文件列表的是 `.lnk` 文件本身，而 foobar2000 播不了它，因此每个路径来源现在都配了一个平行的快捷方式目标数组：`dnd:enter` / `dnd:drop` 载荷与 `dnd.getPathsAsync()` 上的 `resolvedPaths`，以及用于同步快照的新方法 `dnd.getResolvedPaths()`。两个数组长度恒定相等，因此 `paths.map((p, i) => targets[i] ?? p)` 即可得到可播列表。
+- 拿不到目标时该项为 `null`：路径不是快捷方式、快捷方式指向回收站一类 shell 命名空间对象而非文件、记录的目标太长无法完整取回（Windows 以 `MAX_PATH` 截断，而被截断的路径会指向另一个文件）、COM 不可用，或为保持投放响应性而跳过了解析。永远不会是空字符串，因此真值判断就够了。
+- 目标只说明快捷方式指向何处，不保证那个文件在。已失效的快捷方式上报其 `.lnk` 记录的路径而非 `null`——因为无论目标是否还存在，Windows 都会把那个路径交回来，而宿主在被拖放阻塞的线程上负担不起一次文件系统检查。非空项也可能指向已不存在的文件，请自行处理。只解析 `.lnk`——`.url`、`.library-ms` 与虚拟搜索结果都报 `null`。
+- 读 `resolvedPaths` 不产生任何文件系统访问：目标在拖放到达时已解析一次，因此 `getPathsAsync()` 只读宿主内存。
+- **一处已知限制** —— 页面侧快照只发布给顶层文档，因此 `dnd.getPaths()` 与 `dnd.getResolvedPaths()` 在 `<iframe>` 内返回空数组，且该槽位在这个文档的生命周期内一直是 `null`。被嵌入的页面若需要路径，须由主框架经 `postMessage` 转交。
+- 把曲目**拖出**窗口仍不支持，`dnd.startDrag` 继续 resolve `{ success: false, code: 'NOT_SUPPORTED' }`。
+
+### 媒体库查询
+
+- **多值标签不再截断到第一个值。** 自首个版本起，标了多位艺术家的曲目在 `metadata.read` 之外的所有地方都只报第一位。曲目对象现在把各值按标签顺序以 `, ` 拼接、不去重——与 foobar2000 本体的显示一致——作用于 `artist`、`albumArtist`、`genre`、`composer` 四个字段，各 API 仍只带自己本来就有的字段。
+- **新增 `artist` 的原子形态 `artists`。** 拼接串分不清一位叫 `"A, B"` 的艺术家和 `A`、`B` 两位艺术家，因此 library 命名空间的曲目对象——`library.getAll`、`library.query`、`library.search`、`library.getByPath` 及其余 `library.*` 曲目端点——额外携带 `artists: string[]` 原样值数组，`artists.join(', ') === artist` 逐字节成立。其他命名空间的曲目对象（`playlist.getTracks`、`playback.getCurrentTrack`、`queue.get`、artwork 与事件载荷）不含此字段。
+- **聚合按每位参与艺术家计数。** `library.getArtists` 给每位参与艺术家各建一个条目，`trackCount` 因此成为参与计数：各条目相加会大于曲目总数，`albumCount` 与 `totalDuration` 同样按每位艺术家重复计入。`library.getStats` 的 `totalArtists` 现在与 `getArtists` 的条目数一致；`library.getGenres` 对多值 `genre` 的每个值各建一个条目。
+- **新增 `library.search` 与 `library.query` 的字段投影。** `library.search` 接受 `options.fields`，`library.query` 新增第四个 `fields` 参数。返回的每一行随后只持有所请求的键、别无其他，因此 `TrackInfo` 在运行时是局部视图，而声明类型仍是完整的。可用名是 20 个曲目键——`index`、`title`、`artist`、`artists`、`album`、`albumArtist`、`genre`、`date`、`trackNumber`、`discNumber`、`duration`、`path`、`absolutePath`、`fileSize`、`bitrate`、`sampleRate`、`channels`、`codec`、`subsong`、`rating`——区分大小写匹配。省略该参数即返回全部 20 个。传入非数组、空数组、非字符串元素或未知名字都会 resolve（绝不 reject）`{ success: false, code: 'INVALID_PARAMS' }`，并在 `details.unknownFields` 回显出错的名字。
+- **`library.search` 与 `library.query` 现在在主线程之外做序列化**，并把结果直写到通道上，不再构建中间对象图。响应管线沿途不再深拷贝，零命中的查询会短路返回。除破坏性变更里列出的 `items` 移除外，JavaScript 契约不变：两者仍从同一个 promise resolve 同样的形状。
+- **Spider Monkey Panel 兼容层不再逐页重扫媒体库。** `fb.GetQueryItems` 此前按 500 条一页翻页，而 `library.search` 每次请求都重扫全库，于是几千条命中的查询要为每页付一次全库扫描——大库上是 160 次。现在改为先发一次单行探测取命中总数，再一次请求拉回全部命中，并把投影收窄到 `FbMetadbHandle` 实际会读的五个键。可观测的 handle 属性没有任何变化。代价：若两次调用之间媒体库发生变化，探测到的总数就过期了，期间新增的命中会被丢弃；媒体库被并发修改时不保证返回集合稳定。
+- **超大库的实务提示。** 这些改动去掉的是拷贝与载荷，不是产生这些行本身的成本。在六位数规模的库上，全字段全库查询仍会占用宿主主线程相当长的时间，主导项是交给页面的响应体量。不需要全部 20 个键时请用 `fields` 收窄投影——这是目前最有效的单一手段。32 位宿主上还请留意峰值：全字段全库结果在解析期间会同时以多种形态存在，六位数规模的库可能瞬时达到数百 MB。
+
+### 标题格式化
+
+- **`titleformat.eval`、`evalBatch`、`evalFields` 与 `evalFieldsBatch` 现在上报 `infoAvailable`。** 宿主本就知道某曲目的 metadb 信息是否就绪，却把这个信号丢掉了，导致标签派生的输出可能静默出错。`infoAvailable: false` 意味着标签派生的值不可信。批量形式按行携带该标志，失败的行不带它。
+- 两个需要知道的边界：在 `evalFields` 形式下一个标志覆盖整份合并脚本，因此说不出是哪个具体字段受影响；它也**从不**覆盖 foo_playcount 虚拟字段。名字恰好叫 `infoAvailable` 的 `fields` 键会覆写该标志，这与 `path`、`success` 的既有行为一致。
+
+### 错误与权限
+
+- **`fb2k.invoke` 在子框架内现在立即失败。** 它以带 `code: 'NOT_SUPPORTED'` 的 `Error` reject，消息为 `fb2k.invoke is unavailable in subframes`，取代此前静默挂到 30 秒超时。分离式调用（`const { invoke } = fb2k`）仍以 rejection 形式暴露其 `TypeError`，而不是同步抛出。
+- 跨卷的**目录** move 现在返回 `NOT_SUPPORTED` 并带 `details.reason: 'cross-volume'`，而不是一个笼统的失败。跨卷的*文件* move 本就成功，因为底层重命名会静默改走复制。
+- 路径白名单与黑名单条目现在规范化到与判定侧一致的 canonical 真实路径形态。此前用等价但不同写法书写的条目——映射盘、junction、8.3 短名——匹配不上它本想覆盖的路径。
+- 拖入快捷方式、元数据探测与异步文件操作都已纳入参考手册的权限矩阵；其中的计数由 64 个 API 上的 67 条 spec 变为 68 个 API 上的 73 条。
+
+::: danger FileWrite 现在接受媒体库监视目录
+`FileWrite` 链——所有 `file.*` 写操作背后的通道——新增了一步媒体库监视目录判定，因此监视目录内的路径现在**即使在系统盘上也可写**，而此前只有「非系统盘」那一步才可能放行。`FileWrite` 本就是暴露给主题的最宽写通道，这次进一步加宽。若你审计主题，这是第一个该看的通道，而监视目录列表现在也属于它的攻击面。
+:::
+
+### 窗口与菜单
+
+- **菜单收起不再留下看不见的点击陷阱。** WebView 渲染面积现在与菜单关闭同步收敛，不会再留下一块残余透明区域，拦截本该落到下层页面的点击。
+
+### SDK
+
+- 异步文件表面的新导出类型：`FileOpEntry`、`FileOpAsyncOptions`、`FileDeleteAsyncOptions`，以及四个新事件的载荷类型（`FileOpProgressPayload`、`FileOpCompletePayload`、`MetadataProbeProgressPayload`、`MetadataProbeCompletePayload`）与配套联合类型（`FileOpKind`、`FileOpStatus`、`FileOpResultReason`、`MetadataProbeFailure`、`MetadataProbeInfoSource`）。
+- `dialog.openFile`、`saveFile` 与 `openFolder` 现在建档了各自的 resolve 形状（`{ canceled, filePaths }` / `{ canceled, filePath }` / `{ canceled, folderPath }`），取消时路径字段为空。
+- `dnd.getPathsAsync` 改按共享的会话路径形状标注类型，使 `resolvedPaths` 对 TypeScript 可见。`dnd.getResolvedPaths()` 以 `paths` 为基准补齐，因此早于该字段的宿主会返回长度正确的 null 数组，而不是一个会让按下标配对的循环静默错位的短数组。
+
+### 文档
+
+- 双语 API 参考里的每个参数表现在都带默认值列，通篇删除了只复读参数名的填充话术。
+- 必填列逐条对照 C++ handler 的空值检查核验，双语共修正约 50 处标错的参数。
+- `library.coverMaxSize` 的单位建档为 KB 而非字节。三张损坏的 `library` 返回字段表按宿主真实结构重建。修正了 12 处文档错误，含两处语义反转与若干失真描述。
+
+## v1.12.0 (2026-08-13)
+
+::: warning 本版的破坏性变更
+以下四项可能需要修改代码：
+
+- **拖放投放区注册表已移除。** `dnd.registerDropZone` / `unregisterDropZone` / `getDropZones` 不复存在；宿主现在原生观测拖放，并向光标下的窗口发射 `dnd:enter` / `dnd:leave` / `dnd:drop`，无需注册。真实路径改用 `fb.dnd.getPathsAsync()` 或 `dnd:drop` 载荷读取。
+- **`dnd.startDrag` 不再伪装成功。** 拖出窗口需要组件未提供的原生 `IDropSource`；调用现在 resolve `{ success: false, code: 'NOT_SUPPORTED' }`，而不是虚报 `success: true`。
+- **窗口尺寸约束改作用于调用方窗口。** `window.setMinSize` / `getMinSize` / `setMaxSize` / `getMaxSize` / `setResizable` / `isResizable` 这六个端点不再回退到主窗口，解析不到目标时调用失败。依赖旧回退行为的 popup，实际约束的是主窗口。
+- **`DiscoveryContextMenuCommand` 不再是类型别名。** 读取右键菜单命令的 `path` / `isDynamic` / `subGuid` 不再通过类型检查——这些字段从未被填充过。
+
+:::
+
+### 拖放
+
+- **拖放改为原生管线。** 宿主通过原生 `IDropTarget` 桥自行观测拖放手势，把 HTML5 刻意隐藏的真实文件系统路径交给页面。标准 HTML5 拖放事件照常触发，`fb.dnd` 作为旁路通道与之并行。
+- 新表面：`dnd.getPathsAsync(sessionId?)`（在 `drop` 处理函数内可靠读取）、`dnd.getPaths()` / `dnd.hasFiles()`（同步快照读取，用于乐观 UI）、`dnd.getCapabilities()`（本窗口能否交付路径）。
+- 事件 `dnd:enter` / `dnd:leave` / `dnd:drop`（载荷：`sessionId`、`paths`、`x`、`y`、`keyState`）与 `dnd:capabilitiesChanged`，按 `sessionId` 关联同一次手势，点对点投递到光标下的窗口。
+- 路径对不受信 origin 扣留，`hasFiles` 仍如实上报；DUI / CUI 面板（`hosting: 'standard'`）拿不到路径——用 `getCapabilities()` 判断，而不是按窗口类型假设。
+- **迁移**：删除 `registerDropZone` / `unregisterDropZone` / `getDropZones` 调用与 `zoneId` 簿记；保留（或补上）HTML5 `dragover` / `drop` 监听做视觉与命中判定；在 `drop` 处理函数内用 `await fb.dnd.getPathsAsync()` 读取真实路径；依赖路径的 UI 以 `dnd.getCapabilities()` 为准。
+
+### 主菜单
+
+- **`menu.runMainMenuCommand` 不再透传宿主异常。** 此前在汉化版 foobar2000 上，宿主异常会以宿主语言的原始 `Error` 逃逸到 JavaScript，并使名称与路径形式彻底失效。失败现统一以 `success: false` 加 `code` 返回：`MENU_ITEM_DISABLED`、`MENU_MATCH_AMBIGUOUS`（附 `candidates`）或 `MENU_COMMAND_NOT_FOUND`。
+- **`menu.getMainMenu` 的叶子在汉化版宿主上可寻址了。** 叶子现在按宿主渲染菜单所用的同一份文本匹配，并回填 `guid` / `subGuid`；汉化版宿主实测由 158 个叶子中 0 个带 guid 提升到 167 个中 131 个。同时开始上报 `flags`、`enabled`、`checked`、`hidden`——此前这些一个都没有。
+- **行为变更** —— 禁用命令会被拒绝执行，而不再报告成功。此前对灰显命令执行会返回 `success: true`，且同一条命令按名字被拒、按 GUID 却「成功」。三种请求形式现在校验一致，返回 `MENU_ITEM_DISABLED`。不在枚举结果中的 GUID 仍会尝试执行——调用方可能持有本次枚举未覆盖的有效地址。
+- 名称与路径按段精确匹配。名字有歧义时上报而不替调用方决定：汉化版宿主上可能有三条不同命令共用同一标签，取首个匹配会静默执行错误的命令。要无歧义请用 `guid` 寻址——它是唯一跨宿主稳定的形式，因为汉化版上报的是本地化标签。
+- `menu.runMainMenuCommand` 新增 `subGuid` 参数，与所属命令 GUID 搭配用于寻址动态子命令。
+- 无法解析出地址的叶子会明示这一点，带 `executable: false` 与 `unaddressableReason`，而不再伪装成一条调用方却无法执行的普通命令。扁平列举结果的 `available` 改为实读宿主状态，不再恒为 `true`，禁用命令不会再与启用命令无从分辨。
+
+### 自绘菜单
+
+- **按调用指定菜单外观。** `menu.show` / `menu.popup` 新增第三个 `MenuPopupOptions` 参数，调用方未传的键不会发送，宿主保留自身默认值：`windowModel`（默认 `'fullscreen'`，可选 `'contentSized'`——把根菜单与一级子菜单绘制为按内容测量的独立紧凑窗口，每块面板各自承载真实 DWM 背景材质与系统窗口阴影；右键菜单推荐用此模型）；`css`（至多 256 KiB）/ `cssReplace` 样式接管；`backdrop`（默认 `'acrylic'`，可选 `'mica'` / `'mica-alt'` / `'none'`）与 `backdropDarkMode`（默认 `true`）；`closeAnimationMs`（默认 `0`，钳制到 `0..1000`）退出淡出时长。
+- **富条目。** `MenuPopupItem.type` 新增 `'nowplaying'`、`'rating'`、`'slider'`、`'segmented'` 及其配套字段（`value`、`min` / `max` / `orientation`、`segments`、`cover` / `title` / `subtitle`），任意行可用 `iconSvg` 内联单色图标。图标经运行时允许列表消毒；非法或超限的图标被丢弃，不会使该行失败。
+- **新事件 `menu:valueChanged`** 以 `{ menuId, itemId, value }` 上报评分、滑杆或分段控件的变化并保持菜单开启；普通行仍经 `menu:select` 上报并关闭菜单。`menu.popup` 只在选择或取消时 resolve，菜单含值控件时请单独订阅此事件。
+- **修复** —— 失焦关闭现在可靠生效；`contentSized` 模型下池化子菜单窗口不再出现空白内容。
+
+### Discovery 菜单
+
+- **行为变更** —— `discovery.searchCommands` 现在同时搜索右键菜单与主菜单，因此结果数增加，`type` 出现新取值 `'contextmenu'`。传 `{ scope: 'mainmenu' }` 可回到原有覆盖面。此前该端点只查主菜单，却把 `type: 'mainmenu'` 写进每条结果，导致右键命令搜不到。
+- **行为变更** —— `discovery.searchCommands` 会过滤宿主不会显示的条目，与列举端点保持一致。传 `{ includeHidden: true }` 可取回完整集合。
+- **行为变更** —— `discovery.getAllServices` 将右键菜单命令计入 `services.contextMenuCommands` 并纳入 `totalServices`，因此 `totalServices` 数值变化。被过滤掉的数量由 `contextMenuHiddenFiltered` 给出；无选中且无播放曲目时 `stateKnown` 为 `false`。
+- 搜索结果携带与列举端点一致的状态字段（`enabled`、`checked`、`radioChecked`、`hidden`、`stateKnown`、`flags`、`source`、`executable`、`unaddressableReason`），调用方无需再发一次请求即可判断能否执行。搜索包含右键菜单但无选中且无播放曲目时，响应的 `stateKnown` 为 `false`，此时这些结果的 `enabled` / `checked` 不得用于过滤。
+- 搜索的大小写折叠改为仅作用于 ASCII，不再可能破坏 UTF-8 序列。对中文标签的可观测匹配行为不变——中文没有可折叠的大小写。
+- **`discovery.getContextMenuTree` 不再静默截断。** 此前子项截到 50、深度截到 10，却仍上报宿主的真实 `childCount`，导致 `children.length` 与 `childCount` 不符且无任何说明。两个上限现为深度 16、每节点 512 子项，且任何裁剪都会上报：`popup` 节点同时给出 `childCount` 与 `childrenReturned`，子树被裁剪的节点带 `truncated`，并由 `depthExceeded` / `childrenExceeded` 说明原因。标记向上传播，因此顶层 `truncated` 覆盖整棵树；`maxDepth` 与 `maxChildrenPerNode` 回显生效上限。
+- `discovery.getContextMenuTree` 的节点现在上报状态——`enabled`、`checked`、`radioChecked`、`hidden`、`stateKnown`、`flags`——以及 `depth`。分隔符只带类型，这也是对它唯一有意义的信息。
+- `discovery.executeContextMenuCommand` 在成功路径上也返回 `hidden` 与 `resolved`，不再只在拒绝时返回，调用方因此能区分「未被拒绝」与「本版本不返回该字段」。无注册项拥有该 GUID 时 `resolved` 为 `false`，此时没有可评估的状态。
+- `discovery.getMainMenuCommands` 中由动态子菜单展开的条目现在也带 `stateKnown`、`executable`、`unaddressableReason`，与静态槽位一致。
+
+### SDK
+
+- **破坏性类型修正** —— `DiscoveryContextMenuCommand` 原本是 `DiscoveryMainMenuCommand` 的类型别名，因而声明了右键侧根本不会返回的字段。现改为独立接口：右键条目是扁平注册、由宿主决定位置，因此没有菜单 `path`，也没有动态展开相关字段。此前读取右键命令的 `path` / `isDynamic` / `subGuid` 的 TypeScript 代码，读的是从未被填充过的字段。
+- 新增导出类型 `MenuNodeState`、`MenuNodeSource`、`MenuUnaddressableReason`，由所有菜单列举结果共用。
+- `fb.discovery.searchCommands()` 接受 `{ scope, includeHidden }`；`fb.discovery.getContextMenuCommands()` 接受 `{ includeHidden }`。
+- 修复 SMP 主菜单派发。此前菜单 id 优先按 `path` 解析，而路径匹配在汉化宿主上直接失败，导致主菜单的 `ExecuteByID` 在这类宿主上完全不工作。现改为优先 `guid`（由宿主直接解析）；右键菜单会话仍以 `commandId` 为准。
+- 修复 SMP 菜单状态解码。此前 `enabled` / `checked` 由原始 `flags` 位重新推导，忽略了宿主已给出的归一化布尔值。现优先使用布尔值，仅在其缺失时回退到 `flags`。标记为 `stateKnown: false` 的条目按可用呈现而非置灰，因为「状态未知」与「可用且未勾选」在 `flags` 上无法区分，把未观测状态当作禁用会隐藏宿主本可执行的命令。
+
+### 托盘与菜单
+
+- **修复** —— 托盘菜单的「显示主窗口」不再依赖主页面。窗口一旦最小化或隐藏到托盘，页面会被深度挂起，任何 `tray:menuItemClicked` handler 都跑不起来，也就无法调用 `window.focus` 把窗口找回来；左键单击图标同样无声。原生项（`_sys_exit`、`playbackAction`）全程正常。
+- **行为变更** —— `showSystemItems`（默认 `true`）现在会在 bottom 分区的 `_sys_exit` 之前注入 `_sys_show`（「显示主窗口」）。该项原生恢复并前置主窗口，保留其最大化 / 正常放置状态；与所有原生项一致，它**不发** `tray:menuItemClicked`。因此使用 `showSystemItems: true` 的菜单会多出一行；传 `showSystemItems: false` 可关闭该行为。
+- `_sys_show` 与 `_sys_exit` 一同进入精确、大小写敏感的保留 id 允许列表：前端自绘「显示主窗口」行时可获得同样的原生路由并保留自己的 `label` / `icon`，对应注入项自动跳过。形似 id（如 `_sys_show_alt`、`_SYS_SHOW`）仍是普通用户项，且不会抑制注入。`playbackAction` 仍拒绝 `'show-main-window'` 与 `'exit'`——系统路由始终专属于保留 id。
+
+### 窗口
+
+- **行为变更** —— 六个尺寸约束端点（`window.setMinSize` / `getMinSize` / `setMaxSize` / `getMaxSize` / `setResizable` / `isResizable`）现在作用于调用方窗口，或显式传入的 `windowId`，不再回退到主窗口。此前 popup 设置自己的最小尺寸，实际约束的是主窗口。解析不到目标时调用失败，而不是返回另一个窗口的约束。DUI / CUI 面板调用方会被拒绝，并带 `panelMode: true`。
+- **文档修正** —— 这些端点的尺寸单位是物理像素，而非此前文档所写的 DIP。按设备像素比换算的调用方，在高 DPI 显示器上会把系数乘两次。经 setter 与 getter 往返的取值精确到 ±1px。
+
+### 界面语言
+
+- 插件原生界面改为跟随 foobar2000 的呈现语言，不再跟随 Windows 界面语言，因此汉化版 foobar2000 不会再显示英文的首选项页面。语言由宿主自身的字符串探测得出，探测不可行时回退到 Windows 界面语言。
+- 新增*界面语言*首选项：*自动（跟随 foobar2000）*（默认）、*English* 或 *中文*。新打开的对话框立即生效；菜单标题与面板描述只向宿主注册一次，需重启 foobar2000 才会刷新。
+
+### 播放列表
+
+- **第三方组件的播放列表文件现在能正确展开。** 通过 API 添加播放列表 URL 或文件时，此前用硬编码的 8 种包装扩展名（`.pls` / `.m3u` / `.m3u8` / `.asx` / `.wpl` / `.xspf` / `.fpl` / `.cue`）判断；其他已安装组件注册的播放列表格式会被当作单条曲目。现在运行时查询宿主的 playlist_loader 注册表，宿主能加载的格式都会被展开。
+
+### 性能与稳定性
+
+- **修复** —— WebView2 *浏览器*进程死亡后，窗口不再一直空白。此前只有渲染进程有恢复路径，因此当外部原因（例如第三方钩子注入浏览器进程）导致其崩溃时，窗口会保持空白且无从自愈；实测有一次会话就这样运行了 10 小时。现在会重建窗口，并限制为 10 分钟内最多 3 次重建，使可复现的崩溃不会退化成「重建→崩溃→重建」死循环。窗口期过后计数重置，因此之后无关的失败仍可恢复。这与 v1.11.0 的渲染进程处理是两件事，后者负责重载页面与重建 WebView。
+
+## v1.11.0 (2026-07-27)
+
+### 托盘与菜单
+
+- 新增 `TrayMenuItem.playbackAction`（`'play-pause' | 'previous' | 'next' | 'stop'`）：自定义托盘项可声明由插件原生执行的播放动作。外观仍由调用方控制；声明项**不发** `tray:menuItemClicked`（同 Electron `role` / Tauri `PredefinedMenuItem`）。仅可用于 `type:'normal'` 的叶子项；取值非法，或写在分隔符 / 子菜单 / 富控件上时，整次 `setContextMenu` / `appendMenuItems` 调用会以 `INVALID_PARAMS` 失败，而不是静默忽略。不接受 `'exit'`。仅托盘菜单生效，对 `menu.show` 无效；`getMenuItems` 会原样回读该字段。主页面深挂起（最小化 / 托盘隐藏 / 锁屏）时要后台可靠的托盘播放控制，请用本字段或内置 `showPlaybackControls`；仅靠 click→`playback.*` 不保证执行。自 v1.11.0 起可用；需兼容旧宿主时先用 `config.getVersionInfo().plugin.version` 探测。
+- 文档澄清：`tray:menuItemClicked` 仅覆盖普通用户项与富值控件；内置播放 / 系统注入项与声明了 `playbackAction` 的项原生执行且不发点击事件，按钮状态请根据 `playback:*` 事件更新
+- `menu.getMainMenu` 新增 `locale`、`i18n`、`withAvailability` 三个选项。`locale` 默认 `'auto'`，保持宿主原生标签不翻译；`i18n: false` 完全关闭 `displayLabel` 翻译；`withAvailability` 默认 `true`，附带各子菜单的命令可用性计数。SDK 侧签名相应变为 `getMainMenu(root?, opts?)`。
+- 修复自定义菜单的 UTF-8 序列化与上下文模式选择。
+
+### DSP 与输出
+
+- **`dsp.*` 与 `output.*` 现在真正可用。** 这 11 个处理器（`dsp.getChain` / `getPresets` / `getAvailable` / `addDsp` / `removeDsp` / `moveDsp` / `applyPreset` / `setChain`，`output.getDevices` / `getEntries` / `getSettings`）此前虽有文档，但其源文件从未被加入编译，所以任何调用都会因方法未注册而失败。自本版起已编译并注册。已发布的 `fb.dsp.*` / `fb.output.*` SDK 封装本来就存在，配合本版插件后开始真正生效；插件版本低于本版时，无论 SDK 版本如何都会被拒绝。
+- 修复 `output.getDevices` 崩溃。部分输出后端在回调里用「长度未知」哨兵值代替真实长度，原实现直接采用该值，导致读取远超字符串末尾并使 foobar2000 终止。
+- 修复 `dsp.moveDsp` 移动到错误位置。升序移动会少一格，因此向上移动一位等于无操作，且任何项都无法移到链尾；降序移动本来是正确的。返回的 `to` 现在是真实的最终索引。
+- **行为变更** —— `dsp.setChain` 遇到任何不可用条目时整体拒绝，不再静默跳过。此前用三个条目构造的链可能只应用两个却仍返回 `success: true`。每个条目级失败都返回带索引的原因：`dsps[0] must be an object`（元素不是对象，例如裸字符串或数字）、`dsps[0]: guid is required`（缺失、空串或不是字符串）、`dsps[0]: Invalid GUID format: …`、`dsps[0]: DSP not found or no default preset: …`（GUID 格式合法但该 DSP 未安装）。`dsps` 本身缺失或不是数组时仍返回 `dsps array is required`。任何调用被拒绝时链都保持不变。
+- `dsp.getPresets` 在无选中预设时返回 `selectedIndex: -1`。此前返回内部哨兵值 `18446744073709551615`，该值无法用 JavaScript number 表示，到达前端时已是不可用的浮点数。
+- `dsp.getChain` 始终包含 `activePreset` 与 `activePresetIndex`，无选中预设或宿主不支持预设时为 `null` / `-1`。此前这两个键在上述情况下完全缺失，调用方不得不自行探测。
+
+### Discovery
+
+- `discovery.getMainMenuCommands` 与 `discovery.searchCommands` 现在默认展开运行时构建子菜单的组件（`mainmenu_commands_v2`，例如 ESLyric）。**这会改变既有返回结果**：除父级槽位外还会含其子命令。传 `{ expandDynamic: false }` 可回到仅静态注册表的旧行为。
+- 命令条目新增 `path`、`isDynamic`、`isDynamicParent`、`subGuid`、`flags` 字段；响应新增 `expandDynamic`、`dynamicCount`，`discovery.getAllServices` 新增 `mainMenuDynamicCommands`。标记 `isDynamicParent` 的条目是容器槽位，自身不可执行。
+- `discovery.executeMainMenuCommand` 新增第二个可选参数 `subGuid`：执行由动态子菜单展开出的命令时必须一并传入，否则只会派发静态命令 GUID。
+
+### 性能与稳定性
+
+- 页面不可见期间（最小化、被遮挡、托盘隐藏或锁屏），高频可再生流在生产侧即停止：`audio:spectrum`、`playback:time`、`playback:timeHighRes` 不再产生，恢复可见后下一拍自然到达；`window:hoverStateChanged` 与 `cursor:hiddenChanged` 在隐藏期间天然静默。其余事件一律可靠按序投递，不丢弃也不合并，包括 `http:response`、`library:getAllResult`、`audio:fullWaveformReady` 等异步应答与 `playback:itemPlayed` 等逐次事实。绘制频谱或播放进度的主题应把数据中断理解为「页面隐藏」而非「播放停止」。
+- 最小化 / 被遮挡 / 锁屏 / 托盘隐藏时新增深度挂起（`TrySuspend`），冻结渲染进程计时器与动画以便系统回收内存。新增 foobar2000 高级设置项 `Deep-suspend WebView when hidden (TrySuspend; frees renderer memory)`（默认开启，关闭后退回原 Low 内存路径）。
+- 新增高级设置项 `Keep WebView active in background while CDP remote debugging is on (tray/minimize/lock)`（默认开启）：开启 CDP 远程调试时保持 WebView 后台活跃，以保证截图与时序类自动化工具稳定。
+- 收敛 WebView2 崩溃后的僵尸态：进程失败后按重载次数上限决定重载或重建，不再停留在无响应页面。
+- 改进封面获取：修正了换曲或改标签后可能返回上一首封面的缓存问题，并把解码移出 UI 线程、改为逐个排队处理，大尺寸封面不再造成界面卡顿。`artwork.*` 的请求与响应结构未变。
+
+### 元数据
+
+- 修复 `metadata.read`、`metadata.readByPath`、`metadata.readBatch` 忽略容器内轨道编号的问题。路径里的 `|subsong:N` 后缀既没有被剥离也没有被采用，因此从 CUE、ISO 镜像或多轨文件里读取单条轨道时，要么直接失败，要么返回首轨的标签。这正是这类文件在 foobar2000 界面里能读、经 API 读不到的原因。`metadata.readRaw` 原本就是正确的。
+- `metadata.read` 与 `metadata.readByPath` 新增 `cueIndex` 参数，可显式指定轨道，与 `metadata.readRaw` 一致；其优先级高于路径中的 `|subsong:N` 后缀。SDK 的 `fb.metadata.read()` / `readByPath()` 通过第二个 `opts` 参数传入，MCP 的 `fb2k_metadata_read` / `fb2k_metadata_read_by_path` 已声明该参数。`metadata.readBatch` 不接受此参数，批量读取请在各自路径上使用 `|subsong:N` 后缀。
+
+### SDK
+
+- 新增仅 SDK 层的 additive 二进制适配 helper：`fb.file.readBinary()`、`fb.file.writeBinary()`、`fb.file.writeDataUrl()`、`fb.metadata.embedArtworkBytes()`、`fb.metadata.embedArtworkFromDataUrl()`，以及公开类型 `FileBinaryWriteOptions`、`MetadataArtworkBytesOptions`。
+- 这些 helper 只把 `ArrayBuffer` / `Uint8Array` 与严格 Base64 Data URL 适配到既有 `file.read`、`file.write`、`metadata.embedArtwork` wire 契约；不新增 Bridge endpoint，不改变 raw `invoke` 或旧 facade。canonical Base64 与 Data URL 校验发生在 SDK 调用 Host 之前，Host 自身的校验和行为没有变化。
+- 修正两处错误的 TypeScript 返回类型声明，使其与宿主实际 wire 契约一致：`ui.isMinimized()` 为 `{ minimized }`（不存在 `isMinimized` 别名）、`ui.isAlwaysOnTop()` 为 `{ enabled, isAlwaysOnTop }`（两个键同值）。**按旧声明编写的 TypeScript 代码需要相应调整。**
+- `fb.playcount.set()` 不再发送宿主从未读取的 `count` 键；`window.getBackdropPolicy` / `window.setBackdropPolicy` 补齐 `windowId` 参数类型声明。
+- `fb.http.request()` 现在经由文档声明的 `http.get` 端点派发；此前一个失效的内部参数可能转发错配的方法名。动词 helper（`fb.http.post()` / `put()` / `delete()` / `patch()`）仍各自派发到自己的端点，二进制响应也一样。
+- 为五个 wrapper 补上可选的末位 `opts` 参数，对应的键宿主 handler 早已读取：`fb.file.delete(path, opts?)`（`moveToTrash`）、`fb.file.copy(source, destination, opts?)`（`overwrite`），以及 `fb.metadata.write(path, tags, opts?)` / `removeField(path, field, opts?)` / `removeTag(path, tags, opts?)`（`cueIndex`）。其中 `metadata.write` 支持 `cueIndex` 补上了一处真实缺口：v1.11.0 只把 `cueIndex` 接进了元数据**读取**侧，因此此前无法通过 SDK 向 CUE 或镜像文件中的单曲写标签。所有新增参数均为可选，既有调用点不受影响。
+- `fb.metadata.readByPath()` 的返回类型由裸 `JsonObject` 收窄为 `MetadataReadByPathResponse`。
+- 修正两处与宿主契约不符的公开类型声明：`dsp.setChain` 的 `dsps` 是**必填**的 `{ guid }` 对象数组（原声明为 `dsps?: string[]`，在可选性、元素类型、结构三处均错——宿主要求 `dsps` 必须是数组，并逐项读取 `guid`）；`playlist:created` / `playlist:renamed` 的 payload 保持 `name: string`。**按旧 `dsp.setChain` 声明编写的 TypeScript 代码需要相应调整。**
+
+## v1.10.0 (2026-07-16)
+
+- 新增：`TrayMenuItem.orientation`（仅 `type:'slider'`，`'horizontal' | 'vertical'`，默认水平）。仅精确 `vertical` 为纵向（min 底 / max 顶；Up/Right 增、Down/Left 减、Home/End 边界）；`native` 忽略并保持分级子菜单；旧 runtime 忽略未知字段保持水平。范围规范化：`max<min` 交换、`max==min` 常量不发 value、初始 value clamp、IPC 越界拒绝。`getMenuItems` round-trip。需要纵向时先用 `config.getVersionInfo().plugin.version` 探测运行时是否为 1.10.0 及以上
+- 变更：自绘菜单两态焦点（导航 roving tabindex + 真实 focus / 富控件编辑态）与 ARIA（`menuitem` / `menuitemcheckbox` / 内部 `role=slider` / segmented `radiogroup`）；`checked:false` 仍为 checkable；默认入退场在 `prefers-reduced-motion: reduce` 下禁用 transform/transition（不改 hide protocol / `closeAnimationMs`）
+- 新增：`TrayMenuConfig.layoutMode`（`'flat' | 'zones'`）。默认 `'flat'` 保留 `#menu > .fb-item` 直接子 DOM；显式 `'zones'` 时为非空 top / playback / bottom 生成 `.fb-zone[data-zone]`。`native` 忽略；旧 runtime 忽略未知字段但不生成 wrapper；`menu.show` 不受影响。需要 zones 的主题应先用 `config.getVersionInfo().plugin.version` 探测运行时是否为 1.10.0 及以上
+- 变更：自绘菜单受保护 CSS 不再强制可见态 `#menu { display:block !important }`；主题可直接把根菜单 / zone 设为 flex 或 grid，但无法用 `display:* !important` 重新显示已隐藏菜单
+- 安全：自绘菜单 SVG 图标改为 DOMParser + 元素/属性白名单克隆，移除 raw `innerHTML` 注入；非法或超限单图标被丢弃，菜单继续显示；`transform` 严格解析（拒绝前缀/函数间杂质与空参），节点必须位于 SVG namespace
+- 安全：`tray.setContextMenu` / `tray.appendMenuItems` / `menu.show` 在写入持久配置或打开 overlay 前做资源上限事务性校验（item ≤ 512、`menu.show` 深度 ≤ 8、segmented options ≤ 64、CSS ≤ 256 KiB、SVG 总量 ≤ 256 KiB）；单图 SVG > 32 KiB 仅丢弃该图标。超限返回 `INVALID_PARAMS` 且 `details` 含 `field` / `limit` / `actual`；非法 / 超限输入属有意不兼容
+- 安全加固：托盘 / 自绘菜单的内置动作改按可信内部来源路由，不再凭 public id 前缀。唯一兼容例外是 tray API 中精确、大小写敏感的 `_sys_exit`（保持 1.9.0 的真实退出行为）；调用方提供的 `_pb_playPause` / `_pb_prev` / `_pb_next` / `_pb_stop` 仍是普通用户项，且不能通过同名去重抑制 runtime 自动注入的 trusted 播放项；重复 public ID 由 opaque token 区分，公共 `menu.show` 不提权。每次选择 / 值变更由不可预测的单次 token 承载并按本次菜单索引校验，未知 / 过期 token、禁用项、越界富值（rating / slider / segmented）一律拒绝。内部 `menu.__*` IPC 另校验调用方是否为 overlay 自身窗口，且 select / dismiss / ready / submenuPanel / valueChanged 须匹配当前菜单 id；外部调用方或过期 / 伪造的 menuId 一律拒绝且不改变菜单状态
+- 自绘 tray `ContentSized` 现在在字体就绪后离屏测量 root 与全部一级 submenu，并等待连续两帧尺寸稳定；C++ 使用 64 位安全槽位分配。固定 HWND 的 region 只覆盖当前可见 root/submenu panel，因此未展开预留区不再形成空白 acrylic/mica 面板，且调用方配置的 backdrop 不会被静默关闭
+- 托盘自绘菜单 `segmented` 分段控件的值变更明确纳入“保持菜单打开”契约：一次分段切换经 `tray:menuItemClicked` 回传 `{ id, value }`（`value` = 被选中分段的从 0 起索引）且**不关闭**菜单，与 `rating` / `slider` 一致。`webview` 运行时一直保持菜单打开，本次仅修正此前只列 `rating` / `slider` 的共享契约与事件文档
+- 托盘菜单全隐藏（或空）的分区不再产生多余 separator：此前分区内所有项 `visible:false` 时，隐藏项被过滤后会残留一条首/尾分隔线；现在可见性过滤先于 separator 判定，native 与 webview 菜单均不再出现该多余分隔线（默认行为修正）
+- 文档修正：`TrayMenuItem.icon`（base64 ICO）为保留字段，当前两种后端均不渲染（`native` 纯文本、webview 绘制 `iconSvg`）；菜单项图标请改用 `iconSvg`
+
+## v1.9.0 (2026-06-18)
+
+- 托盘自绘菜单（`render: 'webview'`）普通/子菜单项支持图标：新增 `TrayMenuItem.iconSvg = { viewBox, content }`，内联单色 SVG、`currentColor` 跟随菜单文字色、左对齐固定 8px 间距；同层有图标时所有普通/子菜单项预留 16px 图标列以对齐文字（`native` 菜单忽略）
+- `tray.setContextMenu` 新增 `config.autoNowPlaying`：开启后 `nowplaying` 项的空字段（cover/title/subtitle）在右键弹出时由后端用当前曲目自动补全（前端传了就用前端值，**前端优先**）；`cover` 补全仅 `webview`，取当前曲目封面并缩略为缩略图，title/subtitle 走 `%title%`（自动回退文件名）/`%artist%`，兼容流媒体动态标题
+- `TrayMenuItem.cover` 现额外支持 `http(s)://` URL（除既有 `data:` 与裸 base64 外），便于流媒体前端直传实时解析的封面
+- SDK 安装包同步到 `1.9.0`
+
+## v1.8.0 (2026-06-10)
+
+- 新增自绘菜单能力：`menu.show` / `menu.close` 以 WebView 渲染菜单内容，支持子菜单递归渲染；菜单窗口采用内容尺寸固定窗策略，消除展开时的闪烁
+- `tray.*` 新增 `render: 'webview'` 模式，托盘右键菜单可改用自绘菜单渲染，外观与主题保持统一
+- 新增 `tray.setMenuItemState`，可在不重建整个菜单的情况下更新单个菜单项状态
+- 修复桌面歌词等置顶弹窗点击后，主窗口偶发被拉至前台并意外置顶的问题（撤销路径 z-order 插入误入 topmost 段 + sink 还原参照反馈环）
+- 修复 SDK 发布物缺失 `HTMLElementTagNameMap` 全局声明的问题，npm 用户恢复 `fb-*` 自定义元素的类型提示
+- 修复打包脚本在新版 PowerShell 下无法生成 `.fb2k-component` 的兼容性问题
+- HttpApi 异步请求异常边界加固；修复 LibraryApi 一处 NUL 字符串处理缺陷
+- SDK 安装包同步到 `1.8.0`；`bump-version.ps1` 版本同步覆盖面扩展到 `sdk/package-lock.json` 与 VitePress 导航栏版本号
+
+## v1.7.0 (2026-06-06)
+
+- 新增 Taskbar & Tray 能力：`taskbar.*` 可设置任务栏缩略图按钮、进度条、叠加图标和闪烁提示；`tray.*` 可创建系统托盘图标、气泡通知和右键菜单
+- `tray.*` 新增增量菜单管理：`appendMenuItems` / `removeMenuItems` / `clearMenuItems` / `getMenuItems`，可以按 `top` / `playback` / `bottom` 分区动态维护托盘菜单，不必每次重建完整菜单
+- 新增 `taskbar:buttonClicked`、`tray:click`、`tray:doubleClick`、`tray:menuItemClicked`、`tray:beforeContextMenu` 事件，主题可以响应任务栏缩略图按钮和托盘交互
+- 新增 `webview:processFailed` 事件，WebView2 渲染进程异常时会广播诊断信息，并配合渲染进程自动恢复路径降低空白窗口风险
+- 新增高精度播放位置事件 `playback:timeHighRes`，由独立 WinAPI 定时器驱动，适合歌词、进度条等需要亚秒级刷新的界面
+- `library.getAll` 冷缓存全量序列化改为后台线程执行；SDK 会等待 `library:getAllResult` 并按 `requestId` 关联结果，避免大媒体库查询卡住 UI
+- 修复托盘隐藏后窗口恢复路径，补全 `window.focus` / hidden restore 场景下的 WebView surface 恢复，降低最小化、托盘隐藏、Alt+Tab 切回后的空白风险
+- 修复任务栏缩略图 pause 图标 base64 损坏和 HICON 所有权问题，避免播放按钮显示异常和 explorer.exe 崩溃
+- SDK 安装包同步到 `1.7.0`，可直接使用新的 Taskbar & Tray 类型和事件声明
+- VitePress 文档新增 Taskbar & Tray API 页面，并同步 Cursor、Playback 高频事件和相关示例
+
+## v1.6.1 (2026-05-20)
+
+- 新增 `cursor.*` 命名空间：`cursor.setHidden(hidden)` / `cursor.isHidden()` 显式控制客户区光标可见性；解决 Visual Hosting 模式下 CSS `cursor: none` 不可靠的问题
+- 新增 `cursor:hiddenChanged` 事件，每窗口独立派发
+- `fb.http.*` 新增 `insecureTls` 参数（双层门禁）— 全局开关 `Allow self-signed / invalid TLS certificates` ON + 每请求 `insecureTls: true` 才生效，访问自签证书的内网服务（Plex / Jellyfin / Lidarr 等）不再被强制拦截
+- `fb.http.*` 新增 `responseType: 'arraybuffer' | 'binary'`，body 自动 base64 解码为 `ArrayBuffer`，封面 / 字体等二进制资源不再因 UTF-8 严格校验失败
+- VitePress 文档同步上述变化（cursor.md / http.md / events.md）
+
+## v1.6.0 (2026-05-11)
+
+- `playlist.getAll` 不再返回 `duration` 字段，避免为了时长把整批轨道都读一遍；`playlist.getActive` / `playlist.getPlaying` 还是会返回
+- `http.get` / `http.post` / `http.head` 默认改成异步；如果你就是要同步调用，需要显式传 `async: false`
+
+## v1.1.17 (2026-02-06) 
+
+- 可以真正开多个窗口了
+- 新增 `window.createPopup` / `closePopup` / `closeAllPopups` / `getAllWindows`
+- 新增 `window.sendMessage` / `window.broadcast`，窗口之间可以互相发消息
+- 支持异步关闭、无标题栏和透明背景
+
+## v1.1.16 (2026-02-06)

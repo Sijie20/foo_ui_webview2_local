@@ -1,0 +1,95 @@
+﻿#pragma once
+#include "pch.h"
+#include <wil/com.h>
+#include <WebView2.h>
+#include <functional>
+#include <mutex>
+
+// ============================================
+// WebViewEnvironment - WebView2 环境预热与共享
+// 
+// 优化策略：
+// 1. 在 foobar2000 启动时预创建 WebView2 环境
+// 2. 所有面板/窗口共享同一个环境实例
+// 3. 大幅减少后续 WebView 创建时间
+// ============================================
+
+class WebViewEnvironment {
+public:
+    static WebViewEnvironment& GetInstance();
+    
+    // 禁止拷贝
+    WebViewEnvironment(const WebViewEnvironment&) = delete;
+    WebViewEnvironment& operator=(const WebViewEnvironment&) = delete;
+    
+    // 预热环境（在 foobar2000 启动时调用）
+    // 这个函数会异步创建 WebView2 环境
+    void Preheat();
+    
+    // 释放全局 COM 引用并重置就绪状态（在 foobar2000 关闭时调用）
+    // 调用后 environment_ 被释放，后续 GetEnvironment 将重新创建
+    void Shutdown();
+    
+    // 作废缓存环境（WebView2 浏览器进程崩溃退出时调用）。
+    // 浏览器进程退出后 environment_ COM 指针仍非空，但它绑定的进程已死，
+    // 用它创建 controller 会失败。此处只清 ready_，让下一次 GetEnvironment
+    // 走真实创建路径；旧 COM 引用不主动释放（理由同 Shutdown），由下次成功
+    // 创建时的 environment_ = env 赋值自然替换。
+    void Invalidate(const char* reason);
+    
+    // 获取共享环境（如果未就绪则创建）
+    // callback 会在环境就绪时调用
+    using EnvironmentCallback = std::function<void(ICoreWebView2Environment*)>;
+    void GetEnvironment(const EnvironmentCallback& callback);
+    
+    // 环境是否已就绪
+    bool IsReady() const { return ready_; }
+    
+    // WebView2 用户数据目录，不存在时创建：便携版是 <profile>\foo_ui_webview2，
+    // 安装版是 %LOCALAPPDATA%\foobar2000\foo_ui_webview2。都取不到时为空串，
+    // 由 WebView2 用它的缺省位置。
+    static std::wstring GetUserDataPath();
+
+    // 最近一次创建环境的结果，供初始化失败时写日志和诊断信息。
+    // failedStage 为 nullptr 表示没有失败："runtime" 是找不到 Runtime，
+    // "environment" 是 CreateCoreWebView2EnvironmentWithOptions 同步或异步失败。
+    // userDataPath 是组件传进去的目录；effectiveUserDataPath 是环境创建成功后
+    // WebView2 报告的实际目录，被 WEBVIEW2_USER_DATA_FOLDER 或策略覆盖时两者不同。
+    struct CreationInfo {
+        const char* failedStage = nullptr;
+        HRESULT hr = S_OK;
+        std::string runtimeVersion;
+        std::string userDataPath;
+        std::string effectiveUserDataPath;
+    };
+    CreationInfo LastCreation() const;
+
+private:
+    WebViewEnvironment() = default;
+
+    // 便携版首次使用自己的目录时从共用目录复制网页数据；在主线程、创建环境之前调用
+    static void MigrateSharedUserData();
+    
+    // Internal method - assumes creating_ flag is already set
+    void CreateEnvironmentInternal();
+    
+    // 失败时 drain 等待队列并以 nullptr 回调
+    void DrainPendingCallbacksOnFailure();
+
+    void RecordFailure(const char* stage, HRESULT hr);
+
+    wil::com_ptr<ICoreWebView2Environment> environment_;
+    mutable std::mutex mutex_;
+    CreationInfo lastCreation_;
+    bool ready_ = false;
+    bool creating_ = false;
+    
+    // 等待环境就绪的回调队列
+    std::vector<EnvironmentCallback> pendingCallbacks_;
+};
+
+// ============================================
+// initquit 服务声明 - 在启动时预热环境
+// ============================================
+void InitWebViewEnvironment();
+void ShutdownWebViewEnvironment();

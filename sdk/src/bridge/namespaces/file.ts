@@ -1,0 +1,266 @@
+import { call } from '../call.js';
+import {
+    base64ToBytes,
+    bytesToBase64,
+    parseBase64DataUrl,
+} from '../binaryData.js';
+import type {
+    FileCopyAsyncParams,
+    FileCopyParams,
+    FileDeleteAsyncParams,
+    FileDeleteParams,
+    FileListParams,
+    FileReadParams,
+    FileWriteParams,
+} from '../../types/generated/params.js';
+
+/** @deprecated Use `Omit<FileReadParams, 'path'>`. */
+export type FileReadOptions = Omit<FileReadParams, 'path'>;
+
+/** @deprecated Use `Omit<FileWriteParams, 'path' | 'content'>`. */
+export type FileWriteOptions = Omit<FileWriteParams, 'path' | 'content'>;
+
+/** @deprecated Use `Omit<FileListParams, 'path'>`. */
+export type FileListOptions = Omit<FileListParams, 'path'>;
+
+/** Options for binary writes; the helper owns the wire encoding. */
+export type FileBinaryWriteOptions = Omit<
+    FileWriteParams,
+    'path' | 'content' | 'encoding'
+>;
+
+/** One item of the batch passed to {@link file.copyAsync} / {@link file.moveAsync}. */
+export type FileOpEntry = FileCopyAsyncParams['items'][number];
+
+/** Options shared by {@link file.copyAsync} and {@link file.moveAsync}. */
+export type FileOpAsyncOptions = Omit<FileCopyAsyncParams, 'items'>;
+
+/** Options for {@link file.deleteAsync}. */
+export type FileDeleteAsyncOptions = Omit<FileDeleteAsyncParams, 'paths'>;
+
+async function fileReadBinary(path: string): Promise<Uint8Array> {
+    const response = await call('file.read', {
+        path,
+        encoding: 'binary',
+    });
+    if (response?.success === false) {
+        throw new Error(response.error ?? 'file.read failed.');
+    }
+    if (typeof response?.content !== 'string') {
+        throw new TypeError('file.read did not return binary content.');
+    }
+    return base64ToBytes(response.content);
+}
+
+function fileWriteBinary(
+    path: string,
+    bytes: ArrayBuffer | Uint8Array,
+    opts?: FileBinaryWriteOptions,
+) {
+    return call('file.write', {
+        ...opts,
+        path,
+        content: `base64:${bytesToBase64(bytes)}`,
+        encoding: 'binary',
+    });
+}
+
+async function fileWriteDataUrl(
+    path: string,
+    dataUrl: string,
+    opts?: FileBinaryWriteOptions,
+) {
+    const { base64 } = parseBase64DataUrl(dataUrl);
+    return call(
+        'file.write',
+        {
+            ...opts,
+            path,
+            content: `base64:${base64}`,
+            encoding: 'binary',
+        },
+    );
+}
+
+/**
+ * `file` — file-system namespace.
+ */
+export const file = {
+    /** Read a file as text, or as Base64 with `encoding: "binary"`. */
+    read: (path: string, opts?: Omit<FileReadParams, 'path'>) =>
+        call('file.read', {
+            path,
+            ...(opts || {}),
+        }),
+    /** Write text, or bytes decoded from Base64, to a file. Missing parent directories are created first. */
+    write: (
+        path: string,
+        content: string,
+        opts?: Omit<FileWriteParams, 'path' | 'content'>,
+    ) =>
+        call('file.write', {
+            path,
+            content,
+            ...(opts || {}),
+        }),
+    /** Check whether a path exists and whether it is a file or a directory. */
+    exists: (path: string) =>
+        call('file.exists', {
+            path,
+        }),
+    /** List the files and subdirectories of a directory. */
+    list: (path: string, opts?: Omit<FileListParams, 'path'>) =>
+        call('file.list', {
+            path,
+            ...(opts || {}),
+        }),
+    /** Delete a file or directory, to the Recycle Bin unless `moveToTrash` is `false`. */
+    delete: (path: string, opts?: Omit<FileDeleteParams, 'path'>) =>
+        call('file.delete', {
+            path,
+            ...(opts || {}),
+        }),
+    /** Create a directory together with any missing parents. */
+    mkdir: (path: string) =>
+        call('file.mkdir', {
+            path,
+        }),
+    /** Copy a file or a whole directory tree, blocking until the copy is done. */
+    copy: (
+        source: string,
+        destination: string,
+        opts?: Omit<FileCopyParams, 'source' | 'destination'>,
+    ) =>
+        call('file.copy', {
+            source,
+            destination,
+            ...(opts || {}),
+        }),
+    /** Move a file or directory, blocking until the move is done. */
+    move: (source: string, destination: string) =>
+        call('file.move', {
+            source,
+            destination,
+        }),
+    /** Rename a file or directory within its parent directory. */
+    rename: (path: string, newName: string) =>
+        call('file.rename', {
+            path,
+            newName,
+        }),
+    /** Describe a file or directory: size, timestamps, and attributes. */
+    getInfo: (path: string) =>
+        call('file.getInfo', {
+            path,
+        }),
+    /**
+     * Cancellable, non-blocking batch copy. The work runs on a host worker
+     * thread, so unlike `file.copy`, copying a large album does not freeze
+     * the UI.
+     *
+     * Returns a `{ operationId, totalCount }` receipt immediately; the outcome
+     * arrives in batches on `file:opProgress`, followed by one
+     * `file:opComplete`. Two paths skip that closing event - the host shutting
+     * down mid-run, and an unexpected host-side failure - so a listener that
+     * must not leak state should carry its own timeout rather than wait on it
+     * forever.
+     *
+     * Both events go to the window that made the call while that window is
+     * alive. Once it is gone the host can no longer resolve it and falls back
+     * to the main instance, so a late event may surface in a window that did
+     * not start the operation.
+     *
+     * One result is reported per entry, not per file: a directory entry is
+     * reported once its whole tree has been walked. Copying a directory onto an
+     * existing directory merges into it, and files already present there are
+     * skipped without being reported individually, so the entry still reports
+     * `status: 'ok'`. A file entry whose destination already exists is reported
+     * as `skipped` / `already-exists` unless `overwrite` is set.
+     *
+     * Path validation is all-or-nothing: if any entry fails the host's read or
+     * write check, the whole call is rejected with `PERMISSION_DENIED` and no
+     * `operationId` is produced. At most 8 operations may be in flight
+     * process-wide.
+     *
+     * @param items Source/destination pairs; must not be empty.
+     * @param opts `overwrite` (default `false`) replaces existing destinations.
+     * @returns Dispatch receipt; the actual results arrive by event.
+     */
+    copyAsync: (items: FileOpEntry[], opts?: FileOpAsyncOptions) =>
+        call('file.copyAsync', {
+            items,
+            ...(opts || {}),
+        }),
+    /**
+     * Cancellable, non-blocking batch move, with the same receipt-plus-events
+     * contract as {@link file.copyAsync}.
+     *
+     * Within one volume a move is a rename and costs nothing regardless of
+     * size. Across volumes the host falls back to copy-then-delete-source; that
+     * entry still reports `status: 'ok'` but carries `reason: 'cross-volume'`
+     * so the extra cost is visible. Unlike {@link file.copyAsync}, a directory
+     * whose destination already exists is reported as `skipped` /
+     * `already-exists` rather than merged.
+     *
+     * `overwrite` covers file destinations only. An existing *directory*
+     * destination is never replaced, because Windows cannot swap a directory
+     * in place: on the same volume such an entry ends as `skipped` or `failed`
+     * instead of overwriting.
+     *
+     * @param items Source/destination pairs; must not be empty.
+     * @param opts `overwrite` (default `false`) replaces an existing file
+     *   destination. Note the synchronous `file.move` always replaces one.
+     * @returns Dispatch receipt; the actual results arrive by event.
+     */
+    moveAsync: (items: FileOpEntry[], opts?: FileOpAsyncOptions) =>
+        call('file.moveAsync', {
+            items,
+            ...(opts || {}),
+        }),
+    /**
+     * Cancellable, non-blocking batch delete, with the same receipt-plus-events
+     * contract as {@link file.copyAsync}. Results carry no `destination`.
+     *
+     * `moveToTrash: true` (the default) hands each path to the shell, which
+     * requires the host's main thread, so those deletes run there in batches of
+     * 16 and yield in between. `moveToTrash: false` deletes on a worker thread
+     * and removes non-empty directories, which the synchronous `file.delete`
+     * refuses to do in that mode.
+     *
+     * @param paths Paths to delete; must not be empty.
+     * @param opts `moveToTrash` (default `true`) keeps deletions recoverable.
+     * @returns Dispatch receipt; the actual results arrive by event.
+     */
+    deleteAsync: (paths: string[], opts?: FileDeleteAsyncOptions) =>
+        call('file.deleteAsync', {
+            paths,
+            ...(opts || {}),
+        }),
+    /**
+     * Stop an operation started by {@link file.copyAsync},
+     * {@link file.moveAsync} or {@link file.deleteAsync}.
+     *
+     * Cancellation takes effect part-way through a batch rather than at the end
+     * of it. A copy or move stops within one file - the file in flight is
+     * aborted and its partial copy removed; a delete stops at the next entry.
+     * Entries already done keep their results, every remaining entry is
+     * reported as `skipped` / `cancelled`, and the run still ends with a
+     * `file:opComplete` carrying `cancelled: true`. Closing a popup cancels the
+     * operations that popup started; a panel host has no such hook, so its
+     * operations run to the end unless this method stops them.
+     *
+     * @param operationId The id from the dispatch receipt.
+     * @returns `cancelled: false` when the operation had already finished or
+     *   never existed; the two cases are deliberately indistinguishable.
+     */
+    cancelOp: (operationId: string) =>
+        call('file.cancelOp', {
+            operationId,
+        }),
+    /** Read exact bytes; rejects on Host failure or malformed Base64. */
+    readBinary: fileReadBinary,
+    /** Write exact bytes using the host's `base64:` binary wire format. */
+    writeBinary: fileWriteBinary,
+    /** Write a canonical Base64 Data URL; rejects malformed input. */
+    writeDataUrl: fileWriteDataUrl,
+};

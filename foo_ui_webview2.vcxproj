@@ -1,0 +1,689 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{7B8E4A3C-2F1D-4E5A-9C8B-0D3F6E7A2B1C}</ProjectGuid>
+    <RootNamespace>foo_ui_webview2</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <!-- 配置类型：DLL -->
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <!-- LTCG disabled: MSVC C1001 ICE in nlohmann/json.hpp during LTCG pass (v145 compiler bug) -->
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+
+  <PropertyGroup Label="UserMacros" />
+
+  <!-- 输出目录 -->
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\</IntDir>
+    <TargetName>foo_ui_webview2</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\</IntDir>
+    <TargetName>foo_ui_webview2</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(SolutionDir)bin\$(Configuration)_x64\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)_x64\</IntDir>
+    <TargetName>foo_ui_webview2</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(SolutionDir)bin\$(Configuration)_x64\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)_x64\</IntDir>
+    <TargetName>foo_ui_webview2</TargetName>
+  </PropertyGroup>
+
+  <!-- 通用编译设置 -->
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <PreprocessorDefinitions>
+        WIN32;
+        _WINDOWS;
+        _USRDLL;
+        FOO_UI_WEBVIEW2_EXPORTS;
+        %(PreprocessorDefinitions)
+      </PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>
+        $(ProjectDir)src;
+        $(ProjectDir)lib\foobar2000_sdk;
+        $(ProjectDir)lib\columns_ui-sdk;
+        $(ProjectDir)lib\json\include;
+        %(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>
+        dwmapi.lib;
+        Comctl32.lib;
+        Shlwapi.lib;
+        Mpr.lib;
+        %(AdditionalDependencies)
+      </AdditionalDependencies>
+      <AdditionalLibraryDirectories>
+        $(ProjectDir)lib\foobar2000_sdk\foobar2000\shared;
+        %(AdditionalLibraryDirectories)
+      </AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!-- Win32 特定链接设置 -->
+  <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
+    <Link>
+      <AdditionalDependencies>shared-Win32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  
+  <!-- x64 特定链接设置 -->
+  <ItemDefinitionGroup Condition="'$(Platform)'=='x64'">
+    <Link>
+      <AdditionalDependencies>shared-x64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!-- Debug 特定设置 -->
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <!-- Release 特定设置 -->
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!-- 源文件 -->
+  <ItemGroup>
+    <ClCompile Include="src\media\MediaFile.cpp" />
+    <ClCompile Include="src\media\ContainerInfo.cpp" />
+    <ClCompile Include="src\media\Mp4Container.cpp" />
+    <ClCompile Include="src\media\MatroskaContainer.cpp" />
+    <ClCompile Include="src\media\MediaCodecs.cpp" />
+    <ClCompile Include="src\media\MediaIoQueue.cpp" />
+    <ClCompile Include="src\media\MediaService.cpp" />
+    <ClCompile Include="src\webview\WebViewHostMedia.cpp" />
+    <ClCompile Include="src\api\MediaApi.cpp" />
+    <ClCompile Include="src\pch.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\settings\WindowStateConfig.cpp" />
+    <ClCompile Include="src\settings\AdvancedConfig.cpp" />
+    <ClCompile Include="src\ui\UserInterface.cpp" />
+    <ClCompile Include="src\prefs\PreferencesPage.cpp" />
+    <ClCompile Include="src\prefs\PreferencesTemplateActions.cpp" />
+    <ClCompile Include="src\prefs\TemplateNamePrompt.cpp" />
+    <ClCompile Include="src\prefs\ApiInventoryWindow.cpp" />
+    <ClCompile Include="src\prefs\PreferencesPageBase.cpp" />
+    <ClCompile Include="src\prefs\PreferencesDeveloperPage.cpp" />
+    <ClCompile Include="src\prefs\PreferencesWindowPage.cpp" />
+    <ClCompile Include="src\prefs\PreferencesPerformancePage.cpp" />
+    <ClCompile Include="src\domain\PathSecurity.cpp" />
+    <ClCompile Include="src\core\QueueManager.cpp" />
+    <ClCompile Include="src\core\QueueShadowPlaylist.cpp" />
+    <ClCompile Include="src\core\QueueSources.cpp" />
+    <ClCompile Include="src\core\QueueSession.cpp" />
+    <ClCompile Include="src\core\QueueSessionCommands.cpp" />
+    <ClCompile Include="src\core\ContentVersions.cpp" />
+    <ClCompile Include="src\core\JitNativeObservation.cpp" />
+    <ClCompile Include="src\core\QueueNativeAdoption.cpp" />
+    <ClCompile Include="src\core\QueueSessionPlayback.cpp" />
+    <ClCompile Include="src\domain\library\LibraryCache.cpp" />
+    <ClCompile Include="src\domain\library\LibrarySync.cpp" />
+    <ClCompile Include="src\domain\autoplaylist\AutoplaylistConfig.cpp" />
+    <ClCompile Include="src\domain\autoplaylist\ManagedAutoplaylist.cpp" />
+    <ClCompile Include="src\api\ManagedAutoplaylistApi.cpp" />
+    <ClCompile Include="src\domain\library\LibraryPathAlgebra.cpp" />
+    <ClCompile Include="src\domain\library\LibraryTreeBuilder.cpp" />
+    <ClCompile Include="src\domain\library\LibraryTreeIndex.cpp" />
+    <ClCompile Include="src\ui\AppQuit.cpp" />
+    <ClCompile Include="src\ui\BackgroundService.cpp" />
+    <ClCompile Include="src\ui\WebViewMainMenu.cpp" />
+    <ClCompile Include="src\core\WebViewContext.cpp" />
+    <ClCompile Include="src\core\WebViewPanel.cpp" />
+    <ClCompile Include="src\core\PanelBootstrap.cpp" />
+    <ClCompile Include="src\core\PanelCrashDiagnostics.cpp" />
+    <ClCompile Include="src\core\FrontendDirectoryPolicy.cpp" />
+    <ClCompile Include="src\core\FrontendDirectoryResolver.cpp" />
+    <!-- MainWindow.cpp 与下面的 MetadataApi.cpp 关掉 LTCG 以避开 C1001 ICE。Release|Win32 的 pch
+         带 /GL，编译这两个文件时报 C4652（以文件自己的选项为准，无害）；主工程开了 /WX，就地压掉这一条。 -->
+    <ClCompile Include="src\window\MainWindow.cpp">
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <DisableSpecificWarnings>4652;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="src\window\MainWindowActivation.cpp" />
+    <ClCompile Include="src\window\MainWindowBackground.cpp" />
+    <ClCompile Include="src\window\MainWindowCaption.cpp" />
+    <ClCompile Include="src\window\MainWindowInitFailure.cpp" />
+    <ClCompile Include="src\window\MainWindowDiagnostics.cpp" />
+    <ClCompile Include="src\window\MainWindowDwm.cpp" />
+    <ClCompile Include="src\window\MainWindowInternal.cpp" />
+    <ClCompile Include="src\window\MainWindowMaximizeButton.cpp" />
+    <ClCompile Include="src\window\MainWindowPlacement.cpp" />
+    <ClCompile Include="src\window\MainWindowShell.cpp" />
+    <ClCompile Include="src\window\MaximizeButtonRegion.cpp" />
+    <ClCompile Include="src\window\MainWindowMenu.cpp" />
+    <ClCompile Include="src\window\PopupWindow.cpp" />
+    <ClCompile Include="src\window\MenuOverlayHost.cpp" />
+    <ClCompile Include="src\window\StartupPresentationCoordinator.cpp" />
+    <ClCompile Include="src\window\WindowChromeResolver.cpp" />
+    <ClCompile Include="src\window\WindowChromeApplier.cpp" />
+    <ClCompile Include="src\window\WindowBehaviorTrace.cpp" />
+    <ClCompile Include="src\window\WindowShellBase.cpp" />
+    <ClCompile Include="src\window\ChromeController.cpp" />
+    <ClCompile Include="src\window\WindowTargetResolver.cpp" />
+    <ClCompile Include="src\window\WindowTargetPolicy.cpp" />
+    <ClCompile Include="src\window\WindowGeometryMath.cpp" />
+    <ClCompile Include="src\window\WindowDpiProbe.cpp" />
+    <ClCompile Include="src\window\WindowManager.cpp" />
+    <ClCompile Include="src\webview\WebViewHost.cpp" />
+    <ClCompile Include="src\webview\WebViewHostMessaging.cpp" />
+    <ClCompile Include="src\webview\WebViewHostScripts.cpp" />
+    <ClCompile Include="src\webview\WebViewHostDiagnostics.cpp" />
+    <ClCompile Include="src\webview\WebViewHostCrashRecovery.cpp" />
+    <ClCompile Include="src\webview\WebViewHostFocus.cpp" />
+    <ClCompile Include="src\webview\WebViewHostSettings.cpp" />
+    <ClCompile Include="src\webview\HostShortcutRelay.cpp" />
+    <ClCompile Include="src\webview\WebViewHostOrigin.cpp" />
+    <ClCompile Include="src\webview\OriginPolicy.cpp" />
+    <ClCompile Include="src\webview\TextScaleFactor.cpp" />
+    <ClCompile Include="src\webview\WebViewHostVisibility.cpp" />
+    <ClCompile Include="src\webview\WebViewHostVirtualHost.cpp" />
+    <ClCompile Include="src\webview\WebViewHostComposition.cpp" />
+    <ClCompile Include="src\webview\WebViewHostInput.cpp" />
+    <ClCompile Include="src\webview\WebViewHostArtwork.cpp" />
+    <ClCompile Include="src\webview\SharedPcmBuffer.cpp" />
+    <ClCompile Include="src\webview\WebViewEnvironment.cpp" />
+    <ClCompile Include="src\webview\dnd\HdropReader.cpp" />
+    <ClCompile Include="src\webview\dnd\ShortcutResolver.cpp" />
+    <ClCompile Include="src\webview\dnd\DropEffectPolicy.cpp" />
+    <ClCompile Include="src\webview\dnd\DragStartPolicy.cpp" />
+    <ClCompile Include="src\webview\dnd\DragSourceMarker.cpp" />
+    <ClCompile Include="src\webview\dnd\DndTrace.cpp" />
+    <ClCompile Include="src\webview\dnd\DragOverThrottle.cpp" />
+    <ClCompile Include="src\webview\dnd\DragSession.cpp" />
+    <ClCompile Include="src\api\AsyncOperationRegistry.cpp" />
+    <ClCompile Include="src\api\AutoplaylistEditor.cpp" />
+    <ClCompile Include="src\webview\dnd\DndOriginPolicy.cpp" />
+    <ClCompile Include="src\webview\dnd\DragOutPathPolicy.cpp" />
+    <ClCompile Include="src\webview\dnd\HdropBuilder.cpp" />
+    <ClCompile Include="src\webview\dnd\DragTokenStore.cpp" />
+    <ClCompile Include="src\webview\dnd\DragOutTokens.cpp" />
+    <ClCompile Include="src\webview\dnd\CompositionDelegate.cpp" />
+    <ClCompile Include="src\webview\dnd\ChainedDelegate.cpp" />
+    <ClCompile Include="src\webview\dnd\DropTargetBridge.cpp" />
+    <ClCompile Include="src\webview\dnd\DndRegistrar.cpp" />
+    <ClCompile Include="src\api\BridgeCore.cpp" />
+    <ClCompile Include="src\api\CallerContext.cpp" />
+    <ClCompile Include="src\api\PlaybackApi.cpp" />
+    <ClCompile Include="src\api\ConfigApi.cpp" />
+    <ClCompile Include="src\api\PlaylistApi.cpp" />
+    <ClCompile Include="src\api\LibraryApi.cpp" />
+    <ClCompile Include="src\api\WindowApi.cpp" />
+    <ClCompile Include="src\api\ArtworkApi.cpp" />
+    <ClCompile Include="src\api\ArtworkRequestParser.cpp" />
+    <ClCompile Include="src\utils\ImageUtils.cpp" />
+    <ClCompile Include="src\utils\MediaMembershipIndex.cpp" />
+    <ClCompile Include="src\utils\PathCanonicalCache.cpp" />
+    <ClCompile Include="src\utils\PathExpansion.cpp" />
+    <ClCompile Include="src\utils\Encoding.cpp" />
+    <ClCompile Include="src\utils\PlaylistFormatUtils.cpp" />
+    <ClCompile Include="src\utils\I18n.cpp" />
+    <ClCompile Include="src\api\PluginRegistry.cpp" />
+    <ClCompile Include="src\api\FileApi.cpp" />
+    <ClCompile Include="src\api\DialogApi.cpp" />
+    <ClCompile Include="src\api\ClipboardApi.cpp" />
+    <ClCompile Include="src\api\ShellApi.cpp" />
+    <ClCompile Include="src\api\HttpApi.cpp" />
+    <ClCompile Include="src\api\KeyboardApi.cpp" />
+    <ClCompile Include="src\api\UiApi.cpp" />
+    <ClCompile Include="src\api\CursorApi.cpp" />
+    <ClCompile Include="src\api\LyricsApi.cpp" />
+    <ClCompile Include="src\api\MetadataApi.cpp">
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <DisableSpecificWarnings>4652;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="src\api\AudioApi.cpp" />
+    <ClCompile Include="src\api\DspApi.cpp" />
+    <ClCompile Include="src\api\OutputApi.cpp" />
+    <ClCompile Include="src\api\ConsoleApi.cpp" />
+    <ClCompile Include="src\api\MiscApi.cpp" />
+    <ClCompile Include="src\api\MenuApi.cpp" />
+    <ClCompile Include="src\api\DndApi.cpp" />
+    <ClCompile Include="src\api\QueueApi.cpp" />
+    <ClCompile Include="src\api\JitSessionApi.cpp" />
+    <ClCompile Include="src\api\QueueRebuildPlan.cpp" />
+    <ClCompile Include="src\api\GroupRunPlan.cpp" />
+    <ClCompile Include="src\api\SpectrumBands.cpp" />
+    <ClCompile Include="src\api\SpectrumSchedule.cpp" />
+    <ClCompile Include="src\api\LiveWaveform.cpp" />
+    <ClCompile Include="src\api\WaveformAccumulator.cpp" />
+    <ClCompile Include="src\api\WaveformTaskQueue.cpp" />
+    <ClCompile Include="src\api\PcmPack.cpp" />
+    <ClCompile Include="src\api\PcmRing.cpp" />
+    <ClCompile Include="src\api\DiscoveryApi.cpp" />
+    <ClCompile Include="src\api\ReplayGainApi.cpp" />
+    <ClCompile Include="src\api\PlaycountApi.cpp" />
+    <ClCompile Include="src\api\TitleformatApi.cpp" />
+    <ClCompile Include="src\api\SelectionApi.cpp" />
+    <ClCompile Include="src\api\TrayApi.cpp" />
+    <ClCompile Include="src\api\TaskbarApi.cpp" />
+    <ClCompile Include="src\utils\IconLoader.cpp" />
+    <ClCompile Include="src\window\TrayIcon.cpp" />
+    <ClCompile Include="src\window\TaskbarIntegration.cpp" />
+    <ClCompile Include="src\api\PortHub.cpp" />
+    <ClCompile Include="src\api\PortApi.cpp" />
+    <ClCompile Include="src\api\WebviewApi.cpp" />
+    <ClCompile Include="src\callbacks\PlaybackCallback.cpp" />
+    <ClCompile Include="src\callbacks\QueueCallback.cpp" />
+    <ClCompile Include="src\callbacks\DspCallback.cpp" />
+    <ClCompile Include="src\callbacks\ConfigCallback.cpp" />
+    <ClCompile Include="src\callbacks\AudioConfigCallback.cpp" />
+    <ClCompile Include="src\callbacks\PlaybackStatsCallback.cpp" />
+    <ClCompile Include="src\callbacks\PlaylistCallback.cpp" />
+    <ClCompile Include="src\callbacks\LibraryCallback.cpp" />
+    <ClCompile Include="src\callbacks\MetadbCallback.cpp" />
+    <ClCompile Include="src\panels\PanelConfig.cpp" />
+    <ClCompile Include="src\panels\PanelConfigDialog.cpp" />
+    <ClCompile Include="src\panels\WebViewDuiElement.cpp" />
+    <ClCompile Include="src\panels\WebViewCuiPanel.cpp" />
+    <ClCompile Include="src\selection\SelectionWatcher.cpp" />
+    <ClCompile Include="src\selection\SelectionHolder.cpp" />
+    <ClCompile Include="lib\columns_ui-sdk\ui_extension.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="lib\columns_ui-sdk\colours.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+
+  <!-- 头文件 -->
+  <ItemGroup>
+    <ClInclude Include="src\pch.h" />
+    <ClInclude Include="src\media\ChapterSubsongs.h" />
+    <ClInclude Include="src\media\ContainerInfo.h" />
+    <ClInclude Include="src\media\ContainerReader.h" />
+    <ClInclude Include="src\media\MediaCodecs.h" />
+    <ClInclude Include="src\media\MediaFile.h" />
+    <ClInclude Include="src\media\MediaHttp.h" />
+    <ClInclude Include="src\media\MediaRange.h" />
+    <ClInclude Include="src\media\MediaService.h" />
+    <ClInclude Include="src\media\MediaTokens.h" />
+    <ClInclude Include="src\api\MediaApi.h" />
+    <ClInclude Include="src\api\PathValidationBatch.h" />
+    <ClInclude Include="src\ui\UserInterface.h" />
+    <ClInclude Include="src\prefs\PreferencesPage.h" />
+    <ClInclude Include="src\prefs\PreferencesPageInternal.h" />
+    <ClInclude Include="src\prefs\PreferencesPageBase.h" />
+    <ClInclude Include="src\prefs\PreferencesLayout.h" />
+    <ClInclude Include="src\prefs\PreferencesLayoutBuilder.h" />
+    <ClInclude Include="src\prefs\PreferencesDraft.h" />
+    <ClInclude Include="src\prefs\PreferencesFields.h" />
+    <ClInclude Include="src\prefs\PreferencesDevServerUrl.h" />
+    <ClInclude Include="src\prefs\PreferencesCdpPort.h" />
+    <ClInclude Include="src\prefs\PreferencesDeveloperPage.h" />
+    <ClInclude Include="src\prefs\PreferencesWindowPage.h" />
+    <ClInclude Include="src\prefs\PreferencesPerformancePage.h" />
+    <ClInclude Include="src\prefs\PreferencesZoom.h" />
+    <ClInclude Include="src\prefs\PreferencesTemplateName.h" />
+    <ClInclude Include="src\prefs\TemplateNamePrompt.h" />
+    <ClInclude Include="src\settings\AdvconfigI18n.h" />
+    <ClInclude Include="src\settings\AdvancedConfig.h" />
+    <ClInclude Include="src\settings\SecurityConfig.h" />
+    <ClInclude Include="src\settings\WindowStateConfig.h" />
+    <ClInclude Include="src\ComponentDescription.inc" />
+    <ClInclude Include="src\domain\PathSecurity.h" />
+    <ClInclude Include="src\core\QueueManager.h" />
+    <ClInclude Include="src\core\QueueManagerInternal.h" />
+    <ClInclude Include="src\domain\library\LibraryCache.h" />
+    <ClInclude Include="src\domain\library\LibraryChangeLog.h" />
+    <ClInclude Include="src\domain\library\LibrarySync.h" />
+    <ClInclude Include="src\domain\autoplaylist\AutoplaylistConfig.h" />
+    <ClInclude Include="src\domain\autoplaylist\ManagedAutoplaylist.h" />
+    <ClInclude Include="src\api\ManagedAutoplaylistApi.h" />
+    <ClInclude Include="src\domain\library\LibraryPathAlgebra.h" />
+    <ClInclude Include="src\domain\library\LibraryTreeIndex.h" />
+    <ClInclude Include="src\ui\AppQuit.h" />
+    <ClInclude Include="src\ui\BackgroundService.h" />
+    <ClInclude Include="src\core\WebViewContext.h" />
+    <ClInclude Include="src\core\WebViewPanel.h" />
+    <ClInclude Include="src\core\PanelCrashDiagnostics.h" />
+    <ClInclude Include="src\core\FrontendDirectoryPolicy.h" />
+    <ClInclude Include="src\core\JitShadowRows.h" />
+    <ClInclude Include="src\core\JitSessionModel.h" />
+    <ClInclude Include="src\core\JitNativeContext.h" />
+    <ClInclude Include="src\core\ContentVersions.h" />
+    <ClInclude Include="src\core\JitNativeObservation.h" />
+    <ClInclude Include="src\core\QueueSessionState.h" />
+    <ClInclude Include="src\core\QueueSessionInternal.h" />
+    <ClInclude Include="src\api\JitSessionApi.h" />
+    <ClInclude Include="src\core\FrontendDirectoryResolver.h" />
+    <ClInclude Include="src\window\BackgroundSuspendPolicy.h" />
+    <ClInclude Include="src\window\MainWindow.h" />
+    <ClInclude Include="src\window\MainWindowInternal.h" />
+    <ClInclude Include="src\window\PopupWindow.h" />
+    <ClInclude Include="src\window\MenuOverlayHost.h" />
+    <ClInclude Include="src\window\MenuOverlayGeometry.h" />
+    <ClInclude Include="src\window\MenuActionContract.h" />
+    <ClInclude Include="src\window\MenuTokenTable.h" />
+    <ClInclude Include="src\window\MenuResourceLimits.h" />
+    <ClInclude Include="src\window\MenuOverlayPage.inl" />
+    <None Include="src\window\menu-overlay\menu-overlay.html" />
+    <None Include="src\window\menu-overlay\menu-overlay.css" />
+    <None Include="src\window\menu-overlay\menu-overlay.protected.css" />
+    <None Include="src\window\menu-overlay\menu-overlay.js" />
+    <None Include="src\window\menu-overlay\svg-allowlist.mjs" />
+    <ClInclude Include="src\window\StartupPresentationCoordinator.h" />
+    <ClInclude Include="src\window\TaskbarTrayContracts.h" />
+    <ClInclude Include="src\window\TaskbarProgressPolicy.h" />
+    <ClInclude Include="src\window\WindowChromeState.h" />
+    <ClInclude Include="src\window\WindowChromeResolver.h" />
+    <ClInclude Include="src\window\DwmCompatibility.h" />
+    <ClInclude Include="src\window\WindowChromeApplier.h" />
+    <ClInclude Include="src\window\WindowBehaviorTrace.h" />
+    <ClInclude Include="src\window\WindowShellBase.h" />
+    <ClInclude Include="src\window\ChromeController.h" />
+    <ClInclude Include="src\window\WindowTargetResolver.h" />
+    <ClInclude Include="src\window\WindowTargetPolicy.h" />
+    <ClInclude Include="src\window\WindowGeometryMath.h" />
+    <ClInclude Include="src\window\MaximizeButtonRegion.h" />
+    <ClInclude Include="src\window\WindowDpiProbe.h" />
+    <ClInclude Include="src\window\WindowManager.h" />
+    <ClInclude Include="src\webview\WebViewHost.h" />
+    <ClInclude Include="src\webview\OriginPolicy.h" />
+    <ClInclude Include="src\webview\TextScaleFactor.h" />
+    <ClInclude Include="src\webview\BridgeBootstrapScript.inl" />
+    <ClInclude Include="src\webview\StartupProbeScript.inl" />
+    <ClInclude Include="src\webview\SharedPcmBuffer.h" />
+    <ClInclude Include="src\webview\WebViewEnvironment.h" />
+    <ClInclude Include="src\webview\dnd\HdropReader.h" />
+    <ClInclude Include="src\webview\dnd\ShortcutResolver.h" />
+    <ClInclude Include="src\webview\dnd\DropEffectPolicy.h" />
+    <ClInclude Include="src\webview\dnd\DragStartPolicy.h" />
+    <ClInclude Include="src\webview\dnd\DragSourceMarker.h" />
+    <ClInclude Include="src\webview\dnd\DndTrace.h" />
+    <ClInclude Include="src\webview\dnd\DragOverThrottle.h" />
+    <ClInclude Include="src\webview\dnd\DragSession.h" />
+    <ClInclude Include="src\webview\dnd\DndOriginPolicy.h" />
+    <ClInclude Include="src\webview\dnd\DragOutPathPolicy.h" />
+    <ClInclude Include="src\webview\dnd\HdropBuilder.h" />
+    <ClInclude Include="src\webview\dnd\DragTokenStore.h" />
+    <ClInclude Include="src\webview\dnd\DragOutTokens.h" />
+    <ClInclude Include="src\webview\dnd\IDropTargetDelegate.h" />
+    <ClInclude Include="src\webview\dnd\CompositionDelegate.h" />
+    <ClInclude Include="src\webview\dnd\ChainedDelegate.h" />
+    <ClInclude Include="src\webview\dnd\DropTargetBridge.h" />
+    <ClInclude Include="src\webview\dnd\DndRegistrar.h" />
+    <ClInclude Include="src\api\BridgeCore.h" />
+    <ClInclude Include="src\api\CallerContext.h" />
+    <ClInclude Include="src\api\ErrorEnvelope.h" />
+    <ClInclude Include="src\api\ApiParams.h" />
+    <ClInclude Include="src\api\ApiResult.h" />
+    <ClInclude Include="src\api\SkippedPathFilter.h" />
+    <ClInclude Include="src\api\TypedApi.h" />
+    <ClInclude Include="src\api\EventEmit.h" />
+    <ClInclude Include="src\api\generated\ApiSchema.h" />
+    <ClInclude Include="src\api\generated\AppSchema.h" />
+    <ClInclude Include="src\api\generated\ArtworkSchema.h" />
+    <ClInclude Include="src\api\generated\AudioSchema.h" />
+    <ClInclude Include="src\api\generated\ClipboardSchema.h" />
+    <ClInclude Include="src\api\generated\CommonSchema.h" />
+    <ClInclude Include="src\api\generated\ConfigSchema.h" />
+    <ClInclude Include="src\api\generated\ConsoleSchema.h" />
+    <ClInclude Include="src\api\generated\CursorSchema.h" />
+    <ClInclude Include="src\api\generated\DialogSchema.h" />
+    <ClInclude Include="src\api\generated\DiscoverySchema.h" />
+    <ClInclude Include="src\api\generated\DndSchema.h" />
+    <ClInclude Include="src\api\generated\DspSchema.h" />
+    <ClInclude Include="src\api\generated\EventSchema.h" />
+    <ClInclude Include="src\api\generated\FileSchema.h" />
+    <ClInclude Include="src\api\generated\HttpSchema.h" />
+    <ClInclude Include="src\api\generated\JitQueueSchema.h" />
+    <ClInclude Include="src\api\generated\KeyboardSchema.h" />
+    <ClInclude Include="src\api\generated\LibrarySchema.h" />
+    <ClInclude Include="src\api\generated\LogSchema.h" />
+    <ClInclude Include="src\api\generated\LyricsSchema.h" />
+    <ClInclude Include="src\api\generated\MenuSchema.h" />
+    <ClInclude Include="src\api\generated\MetadataSchema.h" />
+    <ClInclude Include="src\api\generated\MetadbSchema.h" />
+    <ClInclude Include="src\api\generated\MiscSchema.h" />
+    <ClInclude Include="src\api\generated\OutputSchema.h" />
+    <ClInclude Include="src\api\generated\PanelSchema.h" />
+    <ClInclude Include="src\api\generated\PlaybackSchema.h" />
+    <ClInclude Include="src\api\generated\PlaycountSchema.h" />
+    <ClInclude Include="src\api\generated\PlaylistSchema.h" />
+    <ClInclude Include="src\api\generated\PluginSchema.h" />
+    <ClInclude Include="src\api\generated\PortSchema.h" />
+    <ClInclude Include="src\api\generated\QueueSchema.h" />
+    <ClInclude Include="src\api\generated\RatingSchema.h" />
+    <ClInclude Include="src\api\generated\ReplaygainSchema.h" />
+    <ClInclude Include="src\api\generated\SelectionSchema.h" />
+    <ClInclude Include="src\api\generated\ShellSchema.h" />
+    <ClInclude Include="src\api\generated\StateSchema.h" />
+    <ClInclude Include="src\api\generated\SystemSchema.h" />
+    <ClInclude Include="src\api\generated\TaskbarSchema.h" />
+    <ClInclude Include="src\api\generated\TitleformatSchema.h" />
+    <ClInclude Include="src\api\generated\TraySchema.h" />
+    <ClInclude Include="src\api\generated\UiSchema.h" />
+    <ClInclude Include="src\api\generated\WebviewSchema.h" />
+    <ClInclude Include="src\api\generated\WindowSchema.h" />
+    <ClInclude Include="src\api\PlaybackApi.h" />
+    <ClInclude Include="src\interfaces\IPlaybackService.h" />
+    <ClInclude Include="src\api\adapters\Fb2kPlaybackService.h" />
+    <ClInclude Include="src\api\adapters\Fb2kPlaylistService.h" />
+    <ClInclude Include="src\api\VolumeScale.h" />
+    <ClInclude Include="src\api\ConfigApi.h" />
+    <ClInclude Include="src\api\PlaylistApi.h" />
+    <ClInclude Include="src\api\LibraryApi.h" />
+    <ClInclude Include="src\api\WindowApi.h" />
+    <ClInclude Include="src\api\WindowCallerIdentity.h" />
+    <ClInclude Include="src\api\ArtworkApi.h" />
+    <ClInclude Include="src\api\ArtworkRequestParser.h" />
+    <ClInclude Include="src\webview\ArtworkRequestLifecycle.h" />
+    <ClInclude Include="src\webview\ArtworkRequestInstrumentation.h" />
+    <ClInclude Include="src\webview\ArtworkWorkerQueue.h" />
+    <ClInclude Include="src\webview\ScaledArtworkCache.h" />
+    <ClInclude Include="src\api\PluginRegistry.h" />
+    <ClInclude Include="src\api\FileApi.h" />
+    <ClInclude Include="src\api\DialogApi.h" />
+    <ClInclude Include="src\api\ClipboardApi.h" />
+    <ClInclude Include="src\api\ShellApi.h" />
+    <ClInclude Include="src\api\HttpApi.h" />
+    <ClInclude Include="src\api\KeyboardApi.h" />
+    <ClInclude Include="src\api\KeyboardHotkeyRules.h" />
+    <ClInclude Include="src\webview\HostShortcutRelay.h" />
+    <ClInclude Include="src\api\UiApi.h" />
+    <ClInclude Include="src\api\CursorApi.h" />
+    <ClInclude Include="src\api\LyricsApi.h" />
+    <ClInclude Include="src\api\LyricsFilePolicy.h" />
+    <ClInclude Include="src\api\MediaReadQueue.h" />
+    <ClInclude Include="src\api\AsyncOperationRegistry.h" />
+    <ClInclude Include="src\api\AutoplaylistEditor.h" />
+    <ClInclude Include="src\api\ProbeFailureClassifier.h" />
+    <ClInclude Include="src\api\MetadataApi.h" />
+    <ClInclude Include="src\api\MetadataTagValues.h" />
+    <ClInclude Include="src\api\AudioApi.h" />
+    <ClInclude Include="src\api\DspApi.h" />
+    <ClInclude Include="src\api\OutputApi.h" />
+    <ClInclude Include="src\api\ConsoleApi.h" />
+    <ClInclude Include="src\api\MiscApi.h" />
+    <ClInclude Include="src\api\MenuApi.h" />
+    <ClInclude Include="src\api\DndApi.h" />
+    <ClInclude Include="src\api\QueueApi.h" />
+    <ClInclude Include="src\api\QueueRebuildPlan.h" />
+    <ClInclude Include="src\api\GroupRunPlan.h" />
+    <ClInclude Include="src\api\SpectrumBands.h" />
+    <ClInclude Include="src\api\SpectrumSchedule.h" />
+    <ClInclude Include="src\api\LiveWaveform.h" />
+    <ClInclude Include="src\api\WaveformAccumulator.h" />
+    <ClInclude Include="src\api\WaveformTaskQueue.h" />
+    <ClInclude Include="src\api\PcmLayout.h" />
+    <ClInclude Include="src\api\PcmPack.h" />
+    <ClInclude Include="src\api\PcmRing.h" />
+    <ClInclude Include="src\api\DiscoveryApi.h" />
+    <ClInclude Include="src\api\ReplayGainApi.h" />
+    <ClInclude Include="src\api\PlaycountApi.h" />
+    <ClInclude Include="src\api\TitleformatApi.h" />
+    <ClInclude Include="src\api\SelectionApi.h" />
+    <ClInclude Include="src\api\TrackRow.h" />
+    <ClInclude Include="src\api\AlbumRowText.h" />
+    <ClInclude Include="src\api\MetadataText.h" />
+    <ClInclude Include="src\api\PlaylistLock.h" />
+    <ClInclude Include="src\api\PortHub.h" />
+    <ClInclude Include="src\api\PortRegistry.h" />
+    <ClInclude Include="src\api\PortApi.h" />
+    <ClInclude Include="src\api\WebviewApi.h" />
+    <ClInclude Include="src\callbacks\PlaybackCallback.h" />
+    <ClInclude Include="src\callbacks\QueueCallback.h" />
+    <ClInclude Include="src\callbacks\DspCallback.h" />
+    <ClInclude Include="src\callbacks\ConfigCallback.h" />
+    <ClInclude Include="src\callbacks\AudioConfigCallback.h" />
+    <ClInclude Include="src\callbacks\PlaybackStatsCallback.h" />
+    <ClInclude Include="src\callbacks\PlaylistCallback.h" />
+    <ClInclude Include="src\callbacks\LibraryCallback.h" />
+    <ClInclude Include="src\callbacks\MetadbCallback.h" />
+    <ClInclude Include="src\panels\PanelConfig.h" />
+    <ClInclude Include="src\panels\PanelConfigDialog.h" />
+    <ClInclude Include="src\panels\PanelDpi.h" />
+    <ClInclude Include="src\panels\WebViewDuiElement.h" />
+    <ClInclude Include="src\panels\WebViewCuiPanel.h" />
+    <ClInclude Include="src\selection\SelectionWatcher.h" />
+    <ClInclude Include="src\selection\SelectionHolder.h" />
+    <ClInclude Include="src\utils\GuidUtils.h" />
+    <ClInclude Include="src\utils\ImageUtils.h" />
+    <ClInclude Include="src\utils\StringUtils.h" />
+    <ClInclude Include="src\utils\SubsongUtils.h" />
+    <ClInclude Include="src\utils\SubsongPath.h" />
+    <ClInclude Include="src\utils\VisWindowPlan.h" />
+    <ClInclude Include="src\utils\WaveformCacheKey.h" />
+    <ClInclude Include="src\utils\CanonicalHandle.h" />
+    <ClInclude Include="src\utils\PathExpansion.h" />
+    <ClInclude Include="src\utils\Encoding.h" />
+    <ClInclude Include="src\utils\PlaylistFormatUtils.h" />
+    <ClInclude Include="src\utils\WindowUtils.h" />
+    <ClInclude Include="src\utils\WindowUtilsCore.h" />
+  </ItemGroup>
+
+  <!-- Windows 版本资源，版本号取自 src/version.h -->
+  <ItemGroup>
+    <ResourceCompile Include="src\foo_ui_webview2.rc" />
+  </ItemGroup>
+
+  <!-- foobar2000 SDK 引用 -->
+  <ItemGroup>
+    <ProjectReference Include="lib\foobar2000_sdk\foobar2000\SDK\foobar2000_SDK.vcxproj">
+      <Project>{E8091321-D79D-4575-86EF-064EA1A4A20D}</Project>
+    </ProjectReference>
+    <ProjectReference Include="lib\foobar2000_sdk\foobar2000\foobar2000_component_client\foobar2000_component_client.vcxproj">
+      <Project>{71AD2674-065B-48F5-B8B0-E1F9D3892081}</Project>
+    </ProjectReference>
+    <ProjectReference Include="lib\foobar2000_sdk\pfc\pfc.vcxproj">
+      <Project>{EBFFFB4E-261D-44D3-B89C-4FC076D94B4D}</Project>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="packages\Microsoft.Web.WebView2.1.0.3719.77\build\native\Microsoft.Web.WebView2.targets" Condition="Exists('packages\Microsoft.Web.WebView2.1.0.3719.77\build\native\Microsoft.Web.WebView2.targets')" />
+    <Import Project="packages\Microsoft.Windows.ImplementationLibrary.1.0.240803.1\build\native\Microsoft.Windows.ImplementationLibrary.targets" Condition="Exists('packages\Microsoft.Windows.ImplementationLibrary.1.0.240803.1\build\native\Microsoft.Windows.ImplementationLibrary.targets')" />
+  </ImportGroup>
+
+  <!-- NuGet 包错误检查 -->
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
+    </PropertyGroup>
+    <Error Condition="!Exists('packages\Microsoft.Web.WebView2.1.0.3719.77\build\native\Microsoft.Web.WebView2.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Web.WebView2.1.0.3719.77\build\native\Microsoft.Web.WebView2.targets'))" />
+    <Error Condition="!Exists('packages\Microsoft.Windows.ImplementationLibrary.1.0.240803.1\build\native\Microsoft.Windows.ImplementationLibrary.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Windows.ImplementationLibrary.1.0.240803.1\build\native\Microsoft.Windows.ImplementationLibrary.targets'))" />
+  </Target>
+
+  <!-- 编译前重新生成 src/api/generated 的参数头 -->
+  <Import Project="$(MSBuildProjectDirectory)\scripts\api-schema\ApiSchema.targets" Condition="Exists('$(MSBuildProjectDirectory)\scripts\api-schema\ApiSchema.targets')" />
+</Project>

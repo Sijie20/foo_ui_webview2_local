@@ -1,0 +1,493 @@
+# SMP Compatibility Layer
+
+The Spider Monkey Panel (SMP) compatibility layer enables running SMP-style scripts within the WebView2 UI environment. The source implementation is in `sdk/src/smp/**` (bootstrap entry: `bootstrapSmpCompat`); published dist output is generated and must not be hand-edited.
+
+## Quick start
+
+```html
+<!-- 1. The bridge bundle loads first and sets window.fb -->
+<script src="bridge.global.js"></script>
+<!-- 2. The SMP layer bootstraps on top of window.fb -->
+<script src="smp-compat.global.js"></script>
+
+<!-- A module script, so it can await at the top level -->
+<script type="module">
+  await window.smp.ready;
+  console.log('IsPlaying:', fb.IsPlaying);
+  console.log('ActivePlaylist:', plman.ActivePlaylist);
+</script>
+```
+
+## Architecture differences from the lower-level API
+
+::: warning Architecture Differences
+The compatibility layer intentionally preserves SMP synchronous-read semantics (eventual consistency via cached state and events versus asynchronous Promises in `fb2k.invoke()`). It is not a 1:1 transparent rewrite of every `fb2k.invoke()` call.
+:::
+
+### Why a cache exists
+
+Most SMP APIs are synchronous. WebView2 ↔ C++ communication is asynchronous (`postMessage` / `invoke`). Replacing `fb.IsPlaying` with `await fb2k.invoke('playback.getState')` would break existing scripts.
+
+The compatibility layer therefore uses a **cache + event** model: eventual consistency in exchange for synchronous reads.
+
+### Two modes
+
+**Lower-level API (`fb2k.invoke`)** — each call is an independent request to C++ and returns the live result.
+
+```javascript
+const state = await fb2k.invoke('playback.getState');
+```
+
+**Compatibility layer** — reads are local/sync; writes update the cache first and notify C++ asynchronously.
+
+```javascript
+const playing = fb.IsPlaying; // from _cache.isPlaying
+plman.ActivePlaylist = 2;
+// immediate: _cache.activePlaylist = 2
+// async fire-and-forget: invoke('playlist.setActive', { playlist: 2 })
+```
+
+### Benefits
+
+- SMP synchronous-read semantics are preserved for UI-friendly properties
+- High-frequency UI reads do not require per-frame `await`
+- Fire-and-forget setters make immediate re-reads match SMP expectations
+- Same BridgeCore entrypoint and security checks as the lower-level API
+
+### Considerations {#risks}
+
+1. Transient cache and backend divergence after a failed write: a rejected call (missing method, exception, or timeout) rolls the cache back, but a failure result (such as an out-of-range index) does not and remains until the next event-driven synchronization
+2. Initialization ordering: always `await window.smp.ready` before reading properties
+3. Non-1:1 behaviors listed in the differences table below
+
+## Architecture overview
+
+Core entry: `sdk/src/smp` / published `smp-compat.js` — cache system, event mapping, `plman`, and `fb` extensions.
+
+Wrapper modules under `sdk/src/smp/` include:
+
+| File | Class / object | Role |
+| --- | --- | --- |
+| `utils.js` | shared helpers | handle normalization, menu item builders |
+| `FbMetadbHandle.js` | `FbMetadbHandle` | track handle surface |
+| `FbMetadbHandleList.js` | `FbMetadbHandleList` | handle list surface |
+| `FbTitleFormat.js` | `FbTitleFormat` | titleformat evaluation helpers |
+| `FbProfiler.js` | `FbProfiler` | timing helper |
+| `FbFileInfo.js` | `FbFileInfo` | metadata/info surface |
+| `FbUiSelectionHolder.js` | `FbUiSelectionHolder` | selection holder |
+| `ContextMenuManager.js` | `ContextMenuManager` | context menu manager |
+| `MainMenuManager.js` | `MainMenuManager` | main menu manager |
+
+### Cache + event mechanism
+
+1. Initialization fills `_cache` with a batch of backend reads
+2. Runtime listens to bridge events and maps SMP names through `fb.onSMP()`
+3. Property reads return from cache without another C++ round-trip
+
+Cached fields include playback state, playlist metadata, follow-cursor flags, ReplayGain mode, and common path roots.
+
+## fb object — properties
+
+| Property | Type | Access | Notes |
+| --- | --- | --- | --- |
+| `fb.IsPlaying` | boolean | read-only | Playing state |
+| `fb.IsPaused` | boolean | read-only | Paused state |
+| `fb.Volume` | number | read/write | Volume in dB (`-100..0`) |
+| `fb.PlaybackTime` | number | read/write | Position in seconds |
+| `fb.PlaybackLength` | number | read-only | Current track duration |
+| `fb.StopAfterCurrent` | boolean | read/write | Stop after current track |
+| `fb.AlwaysOnTop` | boolean | read/write | Always-on-top window state |
+| `fb.CursorFollowPlayback` | boolean | read/write | Cursor follows playback |
+| `fb.PlaybackFollowCursor` | boolean | read/write | Playback follows cursor |
+| `fb.ReplaygainMode` | number | read/write | ReplayGain mode |
+| `fb.ComponentPath` | string | read-only | Component directory |
+| `fb.FoobarPath` | string | read-only | foobar2000 install directory |
+| `fb.ProfilePath` | string | read-only | Profile directory |
+
+## fb object — methods
+
+### Playback control
+
+`fb.Play()` / `fb.Pause()` / `fb.Stop()` / `fb.Next()` / `fb.Prev()` / `fb.Random()` / `fb.PlayOrPause()` / `fb.VolumeUp()` / `fb.VolumeDown()` / `fb.VolumeMute()` / `fb.Exit()`
+
+All return Promises.
+
+### Factory methods
+
+| Method | Returns | Notes |
+| --- | --- | --- |
+| `fb.TitleFormat(expr)` | `FbTitleFormat` | Titleformat object |
+| `fb.CreateHandleList()` | `FbMetadbHandleList` | Empty handle list |
+| `fb.CreateProfiler(name)` | `FbProfiler` | Profiler |
+| `fb.AcquireUiSelectionHolder()` | `FbUiSelectionHolder` | Selection holder |
+| `fb.CreateContextMenuManager()` | `ContextMenuManager` | Context menu manager |
+| `fb.CreateMainMenuManager()` | `MainMenuManager` | Main menu manager |
+
+### Query methods (Promise)
+
+| Method | Returns | Notes |
+| --- | --- | --- |
+| `fb.GetNowPlaying()` | `FbMetadbHandle \| null` | Now playing |
+| `fb.GetFocusItem()` | `FbMetadbHandle \| null` | Focus item |
+| `fb.GetSelection()` | `FbMetadbHandleList` | Current selection |
+| `fb.GetSelectionType()` | number | Selection type |
+| `fb.GetLibraryItems()` | `FbMetadbHandleList` | Full library |
+| `fb.GetQueryItems(handles, query)` | `FbMetadbHandleList` | Library query ⚠️ |
+| `fb.IsLibraryEnabled()` | boolean | Library enabled |
+| `fb.IsMetadbInMediaLibrary(handle)` | boolean | Membership check |
+
+### Command methods (Promise)
+
+| Method | Notes |
+| --- | --- |
+| `fb.RunMainMenuCommand(command)` | Run main-menu command |
+| `fb.RunContextCommand(command)` | Run context-menu command |
+| `fb.ShowConsole()` | Show console |
+| `fb.ShowPreferences()` | Show preferences |
+| `fb.ShowLibrarySearchUI(query)` | Show library search |
+| `fb.ShowPopupMessage(msg, title)` | Show popup message |
+| `fb.Restart()` | Restart foobar2000 |
+
+## plman object
+
+### Properties
+
+| Property | Type | Access | Notes |
+| --- | --- | --- | --- |
+| `plman.ActivePlaylist` | number | read/write | Active playlist index |
+| `plman.PlayingPlaylist` | number | read-only | Playing playlist index (`-1` when not playing) |
+| `plman.PlaylistCount` | number | read-only | Playlist count |
+| `plman.PlaybackOrder` | number | read/write | Playback order |
+
+### Synchronous methods (from cache)
+
+| Method | Returns | Notes |
+| --- | --- | --- |
+| `plman.GetPlaylistName(idx)` | string | Playlist name |
+| `plman.PlaylistItemCount(idx)` | number | Item count |
+| `plman.FindPlaylist(name)` | number | Find index (`-1` if missing) |
+| `plman.IsAutoPlaylist(idx)` | boolean | Autoplaylist flag |
+| `plman.IsPlaylistLocked(idx)` | boolean | Lock flag |
+| `plman.UndoBackup(idx)` | true | No-op compatibility shim |
+
+### Asynchronous methods (Promise)
+
+| Method | Returns | Notes |
+| --- | --- | --- |
+| `plman.CreatePlaylist(pos, name)` | number | Create playlist |
+| `plman.RemovePlaylist(idx)` | boolean | Remove playlist |
+| `plman.RenamePlaylist(idx, name)` | boolean | Rename |
+| `plman.ClearPlaylist(idx)` | boolean | Clear |
+| `plman.DuplicatePlaylist(from, name)` | number | Duplicate |
+| `plman.AddLocations(idx, paths, select)` | number | Add paths |
+| `plman.GetPlaylistItems(idx)` | `FbMetadbHandleList` | All items |
+| `plman.GetPlaylistSelectedItems(idx)` | `FbMetadbHandleList` | Selected items |
+| `plman.InsertPlaylistItems(pl, base, handles, select)` | number | Insert handles |
+| `plman.GetPlaylistFocusItemIndex(idx)` | number | Focus index |
+| `plman.SetPlaylistFocusItem(idx, item)` | boolean | Set focus |
+| `plman.SetPlaylistSelection(idx, items, state)` | boolean | Set selection |
+| `plman.ClearPlaylistSelection(idx)` | boolean | Clear selection |
+| `plman.RemovePlaylistSelection(idx, crop)` | boolean | Remove/crop selection |
+| `plman.SortByFormat(idx, pattern, selectedOnly)` | boolean | Sort by format |
+| `plman.MovePlaylistSelection(idx, delta)` | boolean | Move selection |
+| `plman.AddItemToPlaybackQueue(handle)` | number | Queue append ⚠️ |
+| `plman.GetPlaybackQueueContents()` | Array | Queue contents |
+| `plman.CreateAutoPlaylist(idx, name, query, sort, flags)` | number | Create autoplaylist |
+| `plman.FlushPlaybackQueue()` | boolean | Flush queue |
+
+## Event system {#smp-events}
+
+### fb.onSMP(eventName, callback)
+
+Register a callback using SMP-style event names. Returns an unsubscribe function.
+
+```javascript
+const unsub = fb.onSMP('on_playback_new_track', (track) => {
+  console.log('New track:', track?.title);
+});
+unsub();
+```
+
+### Event mapping
+
+**Playback**
+
+| SMP event | WebView2 event | Callback args |
+| --- | --- | --- |
+| `on_playback_starting` | `playback:starting` | `(command, is_paused)` |
+| `on_playback_new_track` | `playback:trackChanged` | `(track_info)` |
+| `on_playback_stop` | `playback:stopped` | `(reason: 0=user,1=eof,2=starting_another,3=shutting_down)` |
+| `on_playback_pause` | `playback:paused` | `(is_paused)` |
+| `on_playback_seek` | `playback:seeked` | `(time)` |
+| `on_playback_time` | `playback:time` | `(time)` |
+| `on_playback_order_changed` | `playback:orderChanged` | `(new_order_index)` |
+| `on_playback_queue_changed` | `playback:queueChanged` | `(origin)` |
+| `on_playback_edited` | `playback:edited` | `(data)` |
+| `on_playback_dynamic_info` | `playback:dynamicInfo` | `(data)` |
+| `on_playback_dynamic_info_track` | `playback:dynamicInfoTrack` | `(data)` |
+| `on_item_played` | `playback:itemPlayed` | `(handle)` |
+| `on_volume_change` | `playback:volumeChanged` | `(volume_db)` |
+
+**Playlist**
+
+| SMP event | WebView2 event | Callback args |
+| --- | --- | --- |
+| `on_playlist_switch` | `playlist:activated` | `()` |
+| `on_playlist_items_added` | `playlist:itemsAdded` | `(playlist_idx)` |
+| `on_playlist_items_removed` | `playlist:itemsRemoved` | `(playlist_idx, new_count)` |
+| `on_playlist_items_reordered` | `playlist:itemsReordered` | `(playlist_idx)` |
+| `on_playlist_items_selection_change` | `playlist:selectionChanged` | `()` |
+| `on_item_focus_change` | `playlist:focusChanged` | `(playlist, from, to)` |
+| `on_playlists_changed` | multi-event merge | `()` |
+
+**Selection / metadata / library**
+
+| SMP event | WebView2 event | Callback args |
+| --- | --- | --- |
+| `on_selection_changed` | `selection:changed` | `()` |
+| `on_metadb_changed` | `metadb:changed` | `(handle_list, fromHook)` |
+| `on_library_items_added` | `library:itemsAdded` | `()` |
+| `on_library_items_removed` | `library:itemsRemoved` | `()` |
+| `on_library_items_changed` | `library:itemsModified` | `(undefined, fromHook)` |
+
+**Audio / UI / window**
+
+| SMP event | WebView2 event | Callback args |
+| --- | --- | --- |
+| `on_dsp_preset_changed` | `audio:dspPresetChanged` | `()` |
+| `on_output_device_changed` | `audio:outputDeviceChanged` | `()` |
+| `on_replaygain_mode_changed` | `audio:replaygainModeChanged` | `(new_mode)` |
+| `on_colours_changed` | `ui:coloursChanged` | `(data)` |
+| `on_font_changed` | `ui:fontChanged` | `(data)` |
+| `on_always_on_top_changed` | `window:alwaysOnTopChanged` | `(state)` |
+| `on_cursor_follow_playback_changed` | `playback:cursorFollowChanged` | `(state)` |
+| `on_playback_follow_cursor_changed` | `playback:followCursorChanged` | `(state)` |
+| `on_playlist_stop_after_current_changed` | `playback:stopAfterCurrentChanged` | `(state)` |
+| `on_focus` | `panel:focus` + `panel:blur` | `(is_focused)` |
+
+Utility formatting notes: `utils.FormatDuration(seconds)` returns `H:MM:SS` or `M:SS`.
+
+## smp object
+
+### smp.ready
+
+```javascript
+await window.smp.ready;
+```
+
+### smp.refreshCache()
+
+Force a full cache refresh after missed events.
+
+```javascript
+await smp.refreshCache();
+```
+
+### smp.dispose()
+
+Remove cache-related listeners. Call on unload/navigation.
+
+```javascript
+smp.dispose();
+```
+
+## Wrapper classes
+
+### FbMetadbHandle
+
+```javascript
+const handle = new FbMetadbHandle('C:\\Music\\song.flac');
+handle.Path;       // File path
+handle.RawPath;    // Same as Path (for compatibility)
+handle.SubSong;    // Subsong index
+handle.Length;     // Duration (seconds)
+handle.FileSize;   // Size in bytes
+handle.HandleId;   // Canonical identifier (including subsong suffix)
+handle.Compare(other); // Comparison
+await handle.GetFileInfo(); // Returns FbFileInfo
+```
+
+### FbMetadbHandleList
+
+```javascript
+const list = fb.CreateHandleList();
+list.Add(handle);  list.AddRange(otherList);
+list.Count;  list[0];  // Proxy index-based access
+list.Find(handle);  list.Clone();
+list.Remove(handle);  list.RemoveById(0); // Remove by index
+list.RemoveAll();
+list.Convert();  // Convert to JavaScript array
+list.CalcTotalDuration();  list.CalcTotalSize();
+```
+
+### FbTitleFormat
+
+```javascript
+const tf = fb.TitleFormat('%title% - %artist%');
+await tf.Eval();                     // Current playing track
+await tf.EvalWithMetadb(handle);     // Specific handle
+await tf.EvalWithMetadbs(handleList); // Batch evaluation
+```
+
+### FbProfiler
+
+```javascript
+const p = fb.CreateProfiler('MyTask');
+// ... execute work ...
+console.log(p.Time + 'ms');
+p.Print();  p.Reset();
+```
+
+### FbFileInfo
+
+```javascript
+const info = await handle.GetFileInfo();
+info.MetaCount;  info.InfoCount;
+info.MetaFind('artist');  info.MetaName(0);
+info.MetaValueCount(0);   // Number of values for a specific metadata field
+info.MetaValue(0, 0);     // meta[index][value_index]
+info.InfoFind('codec');   info.InfoName(0);   info.InfoValue(0);
+```
+
+### ContextMenuManager
+
+```javascript
+const cm = fb.CreateContextMenuManager();
+cm.InitNowPlaying();  // Or cm.InitContext(handleList) / cm.InitContextPlaylist()
+const items = await cm.BuildMenu();
+// Display via ui.showCustomMenu or a custom HTML menu
+await cm.ExecuteByID(selectedId);
+```
+
+### MainMenuManager
+
+```javascript
+const mm = fb.CreateMainMenuManager();
+mm.Init('file');  // file/edit/view/playback/library/help
+const items = await mm.BuildMenu();
+await mm.ExecuteByID(selectedId);
+```
+
+### Clipboard Operations
+
+| Method | Return | Description |
+| --- | --- | --- |
+| `fb.CheckClipboardContents()` | `boolean` | Whether clipboard contains files |
+| `fb.GetClipboardContents()` | `FbMetadbHandleList` | Retrieve file handles from clipboard |
+| `fb.CopyHandleListToClipboard(handles)` | `boolean` | Copy file paths to clipboard |
+
+```javascript
+if (await fb.CheckClipboardContents()) {
+    const list = await fb.GetClipboardContents();
+    console.log('Clipboard has', list.Count, 'files');
+}
+
+await fb.CopyHandleListToClipboard(myHandleList);
+```
+
+### DSP and Audio Output
+
+| Method | Return | Description |
+| --- | --- | --- |
+| `fb.GetDSPPresets()` | `string` (JSON) | Get available DSP presets |
+| `fb.SetDSPPreset(index)` | `void` | Set active DSP preset |
+| `fb.GetOutputDevices()` | `string` (JSON) | Get list of audio output devices |
+| `fb.SetOutputDevice(guid, deviceId)` | `void` | Set active audio output device |
+
+> `GetDSPPresets` / `GetOutputDevices` return JSON strings (matching SMP behavior) and must be parsed with `JSON.parse()`.
+
+```javascript
+const devices = JSON.parse(await fb.GetOutputDevices());
+const wasapi = devices.find(d => d.name.includes('WASAPI'));
+if (wasapi) await fb.SetOutputDevice(wasapi.outputId, wasapi.deviceId);
+```
+
+### Environment and Commands
+
+| Method / Property | Type | Description |
+| --- | --- | --- |
+| `fb.Version` | `string` (read-only) | foobar2000 version string |
+| `fb.RunContextCommandWithMetadb(cmd, handle)` | `boolean` | Execute context command on specific handle; see matching rules below |
+| `fb.ClearPlaylist()` | `boolean` | Clear active playlist |
+| `fb.GetLibraryRelativePath(handle)` | `string` | Get path relative to foobar2000 installation directory |
+
+### Playlist Queue Operations
+
+| Method | Return | Description |
+| --- | --- | --- |
+| `plman.AddPlaylistItemToPlaybackQueue(pl, item)` | `boolean` | Add playlist item to playback queue |
+| `plman.GetPlaybackQueueHandles()` | `FbMetadbHandleList` | Retrieve all tracks currently in playback queue |
+| `plman.IsPlaylistItemSelected(pl, item)` | `boolean` | Check whether a playlist item is selected |
+| `plman.FindOrCreatePlaylist(name)` | `number` | Find existing playlist by name or create a new one |
+| `plman.MovePlaylist(from, to)` | `boolean` | Reorder playlist positions |
+
+```javascript
+// Add 3rd track of 1st playlist to playback queue
+await plman.AddPlaylistItemToPlaybackQueue(0, 2);
+
+// Find or create playlist
+const idx = await plman.FindOrCreatePlaylist('My Favorites');
+
+// Move 4th playlist to 1st position
+await plman.MovePlaylist(3, 0);
+```
+
+## Known non-1:1 differences
+
+| API | Limitation | Notes |
+| --- | --- | --- |
+| `fb.GetQueryItems(handles, query)` | `handles` ignored | Always queries the full library |
+| `fb.GetFocusItem(force)` | `force=true` fallback not implemented | Returns `null` when no focus item exists |
+| `plman.FindOrCreatePlaylist(name, unlocked)` | `unlocked` ignored | Does not auto-unlock after create |
+| `plman.CreateAutoPlaylist(idx, ...)` | position arg ignored | Always appends |
+| `plman.AddItemToPlaybackQueue(handle)` | path-based enqueue | Enqueues through `queue.addPaths`; the path keeps its `\|subsong:N` suffix, so the queued entry is the same subsong |
+| `fb.RunContextCommandWithMetadb(cmd, handle)` | full menu path required, no fallback | The menu is built for the given tracks; `cmd` is matched case-insensitively against the full slash-separated path from the menu root, and the first match runs. Returns `false` when nothing matches or the menu cannot be built or run; it never falls back to the selection or the playing track |
+| `window.NotifyOthers(name, info)` | no automatic `on_notify_data` | Receivers should use `fb2k.on('window:message', ...)` |
+| `utils.ColourPicker()` | no native picker | Returns the provided default |
+| All methods | Promise-based where C++ is async | Unlike original SMP sync APIs |
+| GDI / canvas APIs | unsupported | Use HTML/CSS/Canvas instead |
+
+::: warning Matching Rules for RunContextCommandWithMetadb
+The context menu is constructed for the specified tracks. `cmd` is compared case-insensitively against the full slash-separated path from the root of the menu, and the first matching command is executed. If no command matches, menu creation fails, or execution fails, the method returns `false` without falling back to current selection or now playing tracks.
+:::
+
+## window helpers
+
+| Method | Notes | Lower-level API |
+| --- | --- | --- |
+| `window.GetProperty(name, default?)` | Persistent property read | `config.get` with `smp.prop.` prefix |
+| `window.SetProperty(name, value)` | Persistent property write (`null` removes) | `config.set` / `config.remove` |
+| `window.NotifyOthers(name, info)` | Broadcast to other windows | `window.broadcast` |
+
+## utils object
+
+`sdk/smp/utils-compat.js` provides the SMP `utils` global object.
+
+### Pure JS Methods (no backend dependency)
+
+| Method | Return | Description |
+| --- | --- | --- |
+| `utils.Version` | `string` | Compatibility layer version |
+| `utils.FormatDuration(seconds)` | `string` | Seconds → `H:MM:SS` or `M:SS` |
+| `utils.FormatFileSize(bytes)` | `string` | Bytes → human-readable size (`KB`/`MB`/`GB`) |
+| `utils.SplitFilePath(path)` | `[dir, name, ext]` | Split file path into directory, file name, and extension |
+| `utils.PathWildcardMatch(path, pattern)` | `boolean` | Wildcard pattern matching (`*`, `?`) |
+| `utils.DateStringFromTimestamp(ts)` | `string` | Unix timestamp → formatted date string |
+| `utils.CheckFont(name)` | `boolean` | Check whether a font is installed and available |
+
+## Migration example
+
+```javascript
+await window.smp.ready;
+
+fb.onSMP('on_playback_new_track', async (track) => {
+  const tf = fb.TitleFormat('%title% - %artist%');
+  const title = await tf.EvalWithMetadb(track);
+  console.log('Now playing:', title);
+});
+```
+
+## Related pages
+
+- [SDK overview](/sdk/overview)
+- [Events API](/api/events)

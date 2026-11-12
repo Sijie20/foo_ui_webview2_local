@@ -1,0 +1,723 @@
+import type { JsonValue } from '../types/json.js';
+import type { ExtensibleFb, SmpBridgeShape } from './bridgeShape.js';
+import type { MenuTreeNode } from '../types/generated/schema-types.js';
+import { typedCall } from '../utils/typedCall.js';
+import type { BaseResponse } from '../types/responses.js';
+import { ContextMenuManager } from './classes/ContextMenuManager.js';
+import { FbMetadbHandle } from './classes/FbMetadbHandle.js';
+import { FbMetadbHandleList } from './classes/FbMetadbHandleList.js';
+import { FbProfiler } from './classes/FbProfiler.js';
+import { FbTitleFormat } from './classes/FbTitleFormat.js';
+import { FbUiSelectionHolder } from './classes/FbUiSelectionHolder.js';
+import { MainMenuManager } from './classes/MainMenuManager.js';
+import { stripSubsongSuffix } from './handleId.js';
+import { smpWarn } from './smpLog.js';
+import type { SMPPlman, SmpCompatCache, SmpHandleLike } from './types.js';
+import { clamp, normalizeHandleList, successOf, toHandleId } from './utils.js';
+
+/**
+ * SMP-style extensions on the runtime `fb` object.
+ *
+ * Spider Monkey Panel scripts expect properties / methods directly on
+ * `fb` (e.g. `fb.Play()`, `fb.Volume = -10`, `fb.IsPlaying`,
+ * `fb.TitleFormat(expr)`). This module attaches them to the runtime
+ * aggregate without overriding any value the bridge already supplies.
+ *
+ * Cache-rollback rule: every cache-backed setter writes the new value
+ * optimistically, fires the C++ invoke, and on rejection reverts the
+ * cache value so subsequent reads stay consistent with the host.
+ */
+
+/**
+ * Track keys requested from `library.search` by `fb.GetQueryItems` and
+ * `fb.GetLibraryItems`.
+ *
+ * Exactly the keys `FbMetadbHandle` reads out of a track-info object:
+ * `absolutePath` / `path` / `subsong` back `Path` and `SubSong`,
+ * `duration` and `fileSize` back `Length` and `FileSize`. Everything a
+ * handle exposes beyond those goes through `metadata.read` on demand,
+ * so narrowing the projection keeps the whole-library payload small
+ * without changing any observable handle property.
+ */
+const QUERY_ITEM_FIELDS = [
+    'absolutePath',
+    'path',
+    'subsong',
+    'duration',
+    'fileSize',
+];
+
+/** Rows per `library.search` request in `fb.GetLibraryItems`. */
+const LIBRARY_PAGE_SIZE = 5000;
+
+/** Attach a property only if it is not already defined on `target`. */
+function _defineIfMissing(
+    target: object,
+    prop: string,
+    desc: PropertyDescriptor,
+): boolean {
+    if (Object.prototype.hasOwnProperty.call(target, prop)) return false;
+    Object.defineProperty(target, prop, { configurable: true, ...desc });
+    return true;
+}
+
+/** Linear `0..100` percent → SMP dB scale conversion (used by VolumeUp/Down). */
+function _dbToPercent(db: number): number {
+    if (typeof db !== 'number' || !Number.isFinite(db)) return 0;
+    if (db <= -100) return 0;
+    if (db >= 0) return 100;
+    const v = 100 * Math.pow(10, db / 20);
+    return clamp(v, 0, 100);
+}
+
+/** Resolve a handle-like input to a plain filesystem path. */
+function _toPath(handleLike: SmpHandleLike): string {
+    if (!handleLike) return '';
+    if (typeof handleLike === 'string') return stripSubsongSuffix(handleLike);
+    const obj = handleLike as { Path?: unknown; absolutePath?: unknown; path?: unknown };
+    if (typeof obj.Path === 'string') return stripSubsongSuffix(obj.Path);
+    if (typeof obj.absolutePath === 'string') return stripSubsongSuffix(obj.absolutePath);
+    if (typeof obj.path === 'string') return stripSubsongSuffix(obj.path);
+    return '';
+}
+
+/**
+ * Handle ids of an SMP "handle or handle list" argument, each keeping its
+ * `|subsong:N` suffix: a handle list or an array gives one id per entry,
+ * anything else is a single handle.
+ */
+function _toHandleIds(handleOrList: unknown): string[] {
+    if (!handleOrList) return [];
+    const entries =
+        typeof handleOrList === 'string' ? [] : normalizeHandleList(handleOrList);
+    return (entries.length > 0 ? entries : [handleOrList])
+        .map(toHandleId)
+        .filter(Boolean);
+}
+
+/**
+ * The first command whose slash-separated `path` equals `command`, ignoring
+ * case, the way SMP names context-menu commands (for example
+ * `Playback Statistics/Rating/5`); `null` when the menu has none.
+ */
+function _findContextCommand(
+    items: readonly MenuTreeNode[] | undefined,
+    command: string,
+): { id: number; path: string } | null {
+    const wanted = command.toLowerCase();
+    const walk = (
+        nodes: readonly MenuTreeNode[] | undefined,
+    ): { id: number; path: string } | null => {
+        for (const node of nodes ?? []) {
+            if (node.type === 'submenu') {
+                const found = walk(node.children);
+                if (found !== null) return found;
+            } else if (
+                node.type === 'command' &&
+                typeof node.commandId === 'number' &&
+                typeof node.path === 'string' &&
+                node.path.toLowerCase() === wanted
+            ) {
+                return { id: node.commandId, path: node.path };
+            }
+        }
+        return null;
+    };
+    return walk(items);
+}
+
+/**
+ * Install every SMP-style extension on `fb` and `plman`.
+ *
+ * All wrapper classes are bundled statically with this module; the
+ * extensions are attached in a single synchronous pass.
+ */
+export function attachFbExtensions(
+    fb: SmpBridgeShape,
+    plman: SMPPlman,
+    cache: SmpCompatCache,
+    schedulePlaylistRefresh: () => void,
+): void {
+    const _invoke = typedCall(fb.invoke.bind(fb));
+    const fbExt = fb as ExtensibleFb;
+
+    // ─── Volume helpers ─────────────────────────────────────────────
+
+    function _setVolumeDb(db: number): Promise<BaseResponse> {
+        const nextDb = clamp(Number(db) || -100, -100, 0);
+        const oldDb = cache.volumeDb;
+        cache.volumeDb = nextDb;
+        return _invoke('playback.setVolume', {
+            volume: _dbToPercent(nextDb),
+        }).catch((e) => {
+            smpWarn('setVolumeDb failed, rolling back:', e);
+            cache.volumeDb = oldDb;
+            throw e;
+        });
+    }
+
+    // ─── Base playback methods ──────────────────────────────────────
+
+    _defineIfMissing(fbExt, 'Play', {
+        value: () =>
+            fb.player?.play
+                ? fb.player.play()
+                : _invoke('playback.play', {}),
+    });
+    _defineIfMissing(fbExt, 'Pause', {
+        value: () =>
+            fb.player?.pause
+                ? fb.player.pause()
+                : _invoke('playback.pause', {}),
+    });
+    _defineIfMissing(fbExt, 'Stop', {
+        value: () =>
+            fb.player?.stop
+                ? fb.player.stop()
+                : _invoke('playback.stop', {}),
+    });
+    _defineIfMissing(fbExt, 'Next', {
+        value: () =>
+            fb.player?.next
+                ? fb.player.next()
+                : _invoke('playback.next', {}),
+    });
+    _defineIfMissing(fbExt, 'Prev', {
+        value: () =>
+            fb.player?.prev
+                ? fb.player.prev()
+                : _invoke('playback.previous', {}),
+    });
+    _defineIfMissing(fbExt, 'Random', {
+        value: () =>
+            fb.player?.random
+                ? fb.player.random()
+                : _invoke('playback.random', {}),
+    });
+    _defineIfMissing(fbExt, 'PlayOrPause', {
+        value: () =>
+            fb.player?.toggle
+                ? fb.player.toggle()
+                : _invoke('playback.playOrPause', {}),
+    });
+
+    _defineIfMissing(fbExt, 'VolumeUp', {
+        value: () =>
+            _invoke('playback.volumeUp', {})
+                .catch(() => _setVolumeDb((cache.volumeDb ?? -100) + 1))
+                .catch((e) => smpWarn('VolumeUp failed:', e)),
+    });
+    _defineIfMissing(fbExt, 'VolumeDown', {
+        value: () =>
+            _invoke('playback.volumeDown', {})
+                .catch(() => _setVolumeDb((cache.volumeDb ?? -100) - 1))
+                .catch((e) => smpWarn('VolumeDown failed:', e)),
+    });
+    _defineIfMissing(fbExt, 'VolumeMute', {
+        value: () =>
+            _invoke('playback.toggleMute', {}).catch<unknown>(() =>
+                fb.player?.mute
+                    ? fb.player.mute()
+                    : _invoke('playback.mute', {}),
+            ),
+    });
+
+    _defineIfMissing(fbExt, 'Exit', {
+        value: () =>
+            _invoke('misc.exit', {}).catch<unknown>(() =>
+                fb.ui?.close
+                    ? fb.ui.close()
+                    : _invoke('window.close', {}),
+            ),
+    });
+
+    // ─── Cache-backed sync properties ───────────────────────────────
+
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'IsPlaying')) {
+        Object.defineProperty(fbExt, 'IsPlaying', {
+            configurable: true,
+            get: () => !!cache.isPlaying,
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'IsPaused')) {
+        Object.defineProperty(fbExt, 'IsPaused', {
+            configurable: true,
+            get: () => !!cache.isPaused,
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'Volume')) {
+        Object.defineProperty(fbExt, 'Volume', {
+            configurable: true,
+            get: () => (typeof cache.volumeDb === 'number' ? cache.volumeDb : -100),
+            set: (db: number) => {
+                _setVolumeDb(db).catch((e) => smpWarn('set Volume failed:', e));
+            },
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'PlaybackTime')) {
+        Object.defineProperty(fbExt, 'PlaybackTime', {
+            configurable: true,
+            get: () =>
+                typeof cache.playbackTime === 'number' ? cache.playbackTime : 0,
+            set: (seconds: number) => {
+                const s = Number(seconds) || 0;
+                const oldValue = cache.playbackTime;
+                cache.playbackTime = s;
+                const seek = fb.player?.seek
+                    ? fb.player.seek(s)
+                    : _invoke('playback.setPosition', { position: s });
+                Promise.resolve(seek).catch((e) => {
+                    smpWarn('set PlaybackTime failed, rolling back:', e);
+                    cache.playbackTime = oldValue;
+                });
+            },
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'PlaybackLength')) {
+        Object.defineProperty(fbExt, 'PlaybackLength', {
+            configurable: true,
+            get: () =>
+                typeof cache.playbackLength === 'number' ? cache.playbackLength : 0,
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'StopAfterCurrent')) {
+        Object.defineProperty(fbExt, 'StopAfterCurrent', {
+            configurable: true,
+            get: () => !!cache.stopAfterCurrent,
+            set: (enabled: boolean) => {
+                const v = !!enabled;
+                const oldValue = cache.stopAfterCurrent;
+                cache.stopAfterCurrent = v;
+                const p = fb.player?.setStopAfterCurrent
+                    ? fb.player.setStopAfterCurrent(v)
+                    : _invoke('playback.setStopAfterCurrent', { enabled: v });
+                Promise.resolve(p).catch((e) => {
+                    smpWarn('set StopAfterCurrent failed, rolling back:', e);
+                    cache.stopAfterCurrent = oldValue;
+                });
+            },
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'AlwaysOnTop')) {
+        Object.defineProperty(fbExt, 'AlwaysOnTop', {
+            configurable: true,
+            get: () => !!cache.alwaysOnTop,
+            set: (enabled: boolean) => {
+                const v = !!enabled;
+                const oldValue = cache.alwaysOnTop;
+                cache.alwaysOnTop = v;
+                const p = fb.ui?.setAlwaysOnTop
+                    ? fb.ui.setAlwaysOnTop(v)
+                    : _invoke('window.setAlwaysOnTop', { enabled: v });
+                Promise.resolve(p).catch((e) => {
+                    smpWarn('set AlwaysOnTop failed, rolling back:', e);
+                    cache.alwaysOnTop = oldValue;
+                });
+            },
+        });
+    }
+
+    // === Wrappers and commonly used SMP APIs ===
+
+    _defineIfMissing(fbExt, 'TitleFormat', {
+        value: (expression: string) => new FbTitleFormat(expression),
+    });
+    _defineIfMissing(fbExt, 'CreateHandleList', {
+        value: () => new FbMetadbHandleList(),
+    });
+    _defineIfMissing(fbExt, 'CreateProfiler', {
+        value: (name?: string) => new FbProfiler(name),
+    });
+
+    _defineIfMissing(fbExt, 'GetSelection', {
+        value: async () => {
+            const res = successOf(await _invoke('selection.get', { limit: 0 }));
+            const handles: unknown[] = Array.isArray(res?.handles) ? res!.handles! : [];
+            const list = new FbMetadbHandleList();
+            for (const h of handles) {
+                list.Add(new FbMetadbHandle(h as SmpHandleLike));
+            }
+            return list;
+        },
+    });
+    _defineIfMissing(fbExt, 'GetSelectionType', {
+        value: async () => {
+            const res = successOf(await _invoke('selection.getType', {}));
+            return typeof res?.type === 'number' ? res.type : 0;
+        },
+    });
+
+    _defineIfMissing(fbExt, 'IsLibraryEnabled', {
+        value: async () => {
+            const res = successOf(await _invoke('library.getStatus', {}));
+            return !!(res?.enabled ?? res?.initialized);
+        },
+    });
+    _defineIfMissing(fbExt, 'IsMetadbInMediaLibrary', {
+        value: async (handleLike: SmpHandleLike) => {
+            const path = _toPath(handleLike);
+            if (!path) return false;
+            const res = successOf(await _invoke('library.getByPath', { path }));
+            return !!res?.found;
+        },
+    });
+
+    _defineIfMissing(fbExt, 'GetLibraryItems', {
+        value: async () => {
+            const list = new FbMetadbHandleList();
+
+            // Paged because the host's main thread is held in proportion to
+            // the size of each response. Tracks removed between pages move
+            // later rows up, so a concurrently modified library can lose rows.
+            for (let offset = 0; ;) {
+                const res = successOf(await _invoke('library.search', {
+                    query: 'ALL',
+                    offset,
+                    limit: LIBRARY_PAGE_SIZE,
+                    fields: QUERY_ITEM_FIELDS,
+                }));
+                const tracks = Array.isArray(res?.tracks) ? res.tracks : [];
+
+                for (const t of tracks) {
+                    list.Add(new FbMetadbHandle(t));
+                }
+
+                offset += tracks.length;
+                if (!res?.hasMore || tracks.length === 0) return list;
+            }
+        },
+    });
+    _defineIfMissing(fbExt, 'GetQueryItems', {
+        value: async (_handlesLike: unknown, query: string) => {
+            // The handlesLike argument is intentionally ignored; the
+            // search runs against the entire library.
+            // (SMP API quirk preserved for behavioural parity.)
+            const q = String(query ?? '');
+            if (!q) return new FbMetadbHandleList();
+
+            // Two calls, not one per page: `library.search` re-scans the
+            // whole library on every request, so a paged read of a
+            // multi-thousand-hit query pays one full scan per page. A
+            // one-row probe yields the hit count, then a single request
+            // pulls every hit.
+            //
+            // Race window: if the library changes between the two calls
+            // the probed count is stale, so hits added in between are
+            // dropped — `limit` is an upper bound, so a shrinking
+            // library is harmless. The returned set is not guaranteed
+            // stable while the library is being modified concurrently.
+            const probe = successOf(await _invoke('library.search', {
+                query: q,
+                offset: 0,
+                limit: 1,
+            }));
+
+            const probed = probe?.total;
+            const total = typeof probed === 'number' && probed > 0 ? probed : 0;
+            if (total === 0) return new FbMetadbHandleList();
+
+            const res = successOf(await _invoke('library.search', {
+                query: q,
+                offset: 0,
+                limit: total,
+                fields: QUERY_ITEM_FIELDS,
+            }));
+            const tracks = Array.isArray(res?.tracks) ? res.tracks : [];
+
+            const list = new FbMetadbHandleList();
+            for (const t of tracks) {
+                list.Add(new FbMetadbHandle(t));
+            }
+            return list;
+        },
+    });
+
+    _defineIfMissing(fbExt, 'GetNowPlaying', {
+        value: async () => {
+            const res = successOf(await _invoke('playback.getCurrentTrack', {}));
+            if (!res?.found || !res.track) return null;
+            return new FbMetadbHandle(res.track);
+        },
+    });
+    _defineIfMissing(fbExt, 'GetFocusItem', {
+        value: async (_force?: boolean) => {
+            // No playlist named: the host reads the active playlist as the call
+            // arrives, which the cache may not have caught up with. The row is
+            // then read from the playlist the focus was read from.
+            const focus = successOf(await _invoke('playlist.getFocusedTrack', {}));
+            const idx = typeof focus?.index === 'number' ? focus.index | 0 : -1;
+            if (idx < 0 || !focus?.playlistGuid) return null;
+
+            const res = successOf(await _invoke('playlist.getTracks', {
+                playlistGuid: focus.playlistGuid,
+                start: idx,
+                count: 1,
+            }));
+            const t =
+                Array.isArray(res?.tracks) && res!.tracks!.length > 0
+                    ? res!.tracks![0]
+                    : null;
+            if (!t) return null;
+            return new FbMetadbHandle(t as SmpHandleLike);
+        },
+    });
+
+    // === Menu, misc, and config ===
+
+    _defineIfMissing(fbExt, 'RunMainMenuCommand', {
+        value: (command: string) =>
+            _invoke('menu.runMainMenuCommand', { command: String(command ?? '') }),
+    });
+    _defineIfMissing(fbExt, 'RunContextCommand', {
+        value: (command: string) =>
+            _invoke('menu.runContextCommand', { command: String(command ?? '') }),
+    });
+    _defineIfMissing(fbExt, 'ShowConsole', {
+        value: () => _invoke('misc.showConsole', {}),
+    });
+    _defineIfMissing(fbExt, 'ShowPreferences', {
+        value: () => _invoke('misc.showPreferences', {}),
+    });
+    _defineIfMissing(fbExt, 'ShowLibrarySearchUI', {
+        value: (query?: string) =>
+            _invoke('misc.showLibrarySearch', { query: String(query ?? '') }),
+    });
+    _defineIfMissing(fbExt, 'ShowPopupMessage', {
+        value: (msg: string, title?: string) =>
+            _invoke('misc.showPopupMessage', {
+                message: String(msg ?? ''),
+                title: String(title ?? ''),
+            }),
+    });
+    _defineIfMissing(fbExt, 'Restart', {
+        value: () => _invoke('misc.restart', {}),
+    });
+
+    _defineIfMissing(fbExt, 'AcquireUiSelectionHolder', {
+        value: () => new FbUiSelectionHolder(),
+    });
+
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'ComponentPath')) {
+        Object.defineProperty(fbExt, 'ComponentPath', {
+            configurable: true,
+            get: () => String(cache.componentPath || ''),
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'FoobarPath')) {
+        Object.defineProperty(fbExt, 'FoobarPath', {
+            configurable: true,
+            get: () => String(cache.foobarPath || ''),
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'ProfilePath')) {
+        Object.defineProperty(fbExt, 'ProfilePath', {
+            configurable: true,
+            get: () => String(cache.profilePath || ''),
+        });
+    }
+
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'CursorFollowPlayback')) {
+        Object.defineProperty(fbExt, 'CursorFollowPlayback', {
+            configurable: true,
+            get: () => !!cache.cursorFollowPlayback,
+            set: (enabled: boolean) => {
+                const v = !!enabled;
+                const oldValue = cache.cursorFollowPlayback;
+                cache.cursorFollowPlayback = v;
+                _invoke('config.setCursorFollowPlayback', { enabled: v }).catch((e) => {
+                    smpWarn('set CursorFollowPlayback failed, rolling back:', e);
+                    cache.cursorFollowPlayback = oldValue;
+                });
+            },
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'PlaybackFollowCursor')) {
+        Object.defineProperty(fbExt, 'PlaybackFollowCursor', {
+            configurable: true,
+            get: () => !!cache.playbackFollowCursor,
+            set: (enabled: boolean) => {
+                const v = !!enabled;
+                const oldValue = cache.playbackFollowCursor;
+                cache.playbackFollowCursor = v;
+                _invoke('config.setPlaybackFollowCursor', { enabled: v }).catch((e) => {
+                    smpWarn('set PlaybackFollowCursor failed, rolling back:', e);
+                    cache.playbackFollowCursor = oldValue;
+                });
+            },
+        });
+    }
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'ReplaygainMode')) {
+        Object.defineProperty(fbExt, 'ReplaygainMode', {
+            configurable: true,
+            get: () =>
+                typeof cache.replaygainMode === 'number' ? cache.replaygainMode : 0,
+            set: (mode: number) => {
+                const n = Number.isFinite(Number(mode)) ? Number(mode) | 0 : 0;
+                const oldValue = cache.replaygainMode;
+                cache.replaygainMode = n;
+                _invoke('config.setReplaygainMode', { mode: n }).catch((e) => {
+                    smpWarn('set ReplaygainMode failed, rolling back:', e);
+                    cache.replaygainMode = oldValue;
+                });
+            },
+        });
+    }
+
+    // === Menu manager factories ===
+
+    _defineIfMissing(fbExt, 'CreateContextMenuManager', {
+        value: () => new ContextMenuManager(),
+    });
+    _defineIfMissing(fbExt, 'CreateMainMenuManager', {
+        value: () => new MainMenuManager(),
+    });
+
+    // === Clipboard, DSP, output, and version ===
+
+    _defineIfMissing(fbExt, 'CheckClipboardContents', {
+        value: async () => {
+            const res = successOf(await _invoke('clipboard.read', {}));
+            return !!res?.hasFiles;
+        },
+    });
+
+    _defineIfMissing(fbExt, 'GetClipboardContents', {
+        value: async () => {
+            const res = successOf(await _invoke('clipboard.read', {}));
+            const files: Array<string | { path?: string }> = Array.isArray(res?.files)
+                ? res!.files!
+                : [];
+            const list = new FbMetadbHandleList();
+            for (const f of files) {
+                const id = typeof f === 'string' ? f : f?.path ?? '';
+                list.Add(new FbMetadbHandle(id));
+            }
+            return list;
+        },
+    });
+
+    _defineIfMissing(fbExt, 'CopyHandleListToClipboard', {
+        value: async (handlesLike: unknown) => {
+            const items = normalizeHandleList(handlesLike);
+            const paths: string[] = [];
+            for (const h of items) {
+                const p = _toPath(h as SmpHandleLike);
+                if (p) paths.push(p);
+            }
+            if (paths.length === 0) return false;
+            const res = successOf(await _invoke('clipboard.writeFiles', { paths }));
+            return !!res?.success;
+        },
+    });
+
+    _defineIfMissing(fbExt, 'GetDSPPresets', {
+        value: async () => {
+            // The host wraps the presets in a `{ presets, count }` envelope.
+            const res = successOf(await _invoke('config.getDspPresets', {}));
+            const list = res?.presets;
+            const presets = Array.isArray(list) ? list : [];
+            return JSON.stringify(presets);
+        },
+    });
+    _defineIfMissing(fbExt, 'SetDSPPreset', {
+        value: async (idx: number) => {
+            await _invoke('config.setActiveDspPreset', { index: idx | 0 });
+        },
+    });
+
+    _defineIfMissing(fbExt, 'GetOutputDevices', {
+        value: async () => {
+            const res = successOf(await _invoke('config.getOutputDevices', {}));
+            const devices = Array.isArray(res)
+                ? res
+                : Array.isArray((res as { devices?: unknown[] })?.devices)
+                    ? (res as { devices: unknown[] }).devices
+                    : [];
+            return JSON.stringify(devices);
+        },
+    });
+    _defineIfMissing(fbExt, 'SetOutputDevice', {
+        value: async (guid: string, deviceId: string) => {
+            await _invoke('config.setOutputDevice', {
+                outputId: String(guid ?? ''),
+                deviceId: String(deviceId ?? ''),
+            });
+        },
+    });
+
+    if (!Object.getOwnPropertyDescriptor(fbExt, 'Version')) {
+        Object.defineProperty(fbExt, 'Version', {
+            configurable: true,
+            get: () => String(cache.version || ''),
+        });
+    }
+
+    _defineIfMissing(fbExt, 'RunContextCommandWithMetadb', {
+        value: async (
+            command: string,
+            handleOrList: unknown,
+            _flags?: number,
+        ): Promise<boolean> => {
+            const name = String(command ?? '');
+            const handles = _toHandleIds(handleOrList);
+            if (!name || handles.length === 0) return false;
+            // `menu.runContextCommand` runs on the playing track or the
+            // selection and takes no tracks. Build the menu for exactly these
+            // tracks instead and run the command by the id that menu gave it;
+            // the host rebuilds the same menu from the same `mode` and
+            // `handles`, and refuses rather than falls back to other tracks
+            // when none of the handles is usable.
+            const menu = successOf(await _invoke('menu.getContextMenu', {
+                mode: 'handles',
+                handles,
+            }));
+            const found = _findContextCommand(menu?.items, name);
+            if (found === null) return false;
+            // A host that reports `targetKey` refuses, rather than runs another
+            // item, when the rebuilt menu or tracks differ; older hosts reject
+            // the two keys, so send them only then.
+            const check =
+                typeof menu?.targetKey === 'string'
+                    ? { expectPath: found.path, expectTarget: menu.targetKey }
+                    : {};
+            const res = successOf(await _invoke('menu.runContextCommandById', {
+                id: found.id,
+                mode: 'handles',
+                handles,
+                ...check,
+            }));
+            return !!res?.success;
+        },
+    });
+
+    _defineIfMissing(fbExt, 'ClearPlaylist', {
+        value: async () => {
+            // No playlist named: the host clears the playlist active as the call
+            // arrives, not the one the cache last saw active.
+            const res = successOf(await _invoke('playlist.clear', {}));
+            schedulePlaylistRefresh();
+            return !!res?.success;
+        },
+    });
+
+    _defineIfMissing(fbExt, 'GetLibraryRelativePath', {
+        value: (handleLike: SmpHandleLike): string => {
+            const p = _toPath(handleLike);
+            const fbPath = cache.foobarPath || '';
+            if (!p || !fbPath) return p;
+            const norm = (s: string): string =>
+                s.replace(/\//g, '\\').replace(/\\+$/, '');
+            const np = norm(p);
+            const nfb = norm(fbPath);
+            if (np.toLowerCase().startsWith(nfb.toLowerCase())) {
+                return np.slice(nfb.length).replace(/^\\/, '');
+            }
+            return p;
+        },
+    });
+
+    // `plman.AddItemToPlaybackQueue` and friends are installed by
+    // `plman.ts`; reference `plman` here so the bootstrap caller can see
+    // that the invariant is satisfied (no mutation performed).
+    void plman;
+}

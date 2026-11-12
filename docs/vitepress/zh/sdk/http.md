@@ -1,0 +1,146 @@
+# fb.http HTTP 请求
+
+`fb.http` 由宿主进程发出请求，因此不受 WebView2 的 CORS 规则限制。只允许 `http` 和 `https` URL；请求本地或私有网络地址会以 `PERMISSION_DENIED` 失败，除非宿主的高级设置允许。
+
+## get(url, options?)
+
+签名：`fb.http.get(url: string, options?: HttpRequestOptions): Promise<HttpResponse | HttpBinaryResponse>`
+
+派发 GET 请求。宿主默认异步执行请求，因此当前响应通常是 `{ success, requestId, async: true }`，最终响应通过 `http:response` 发出。传入 `{ async: false }` 可直接取得完整响应，也可以使用 `request()` 等待事件驱动结果。
+
+```javascript
+const response = await fb.http.get('https://api.example.com/data', { async: false });
+```
+
+## post(url, body?, options?)
+
+签名：`fb.http.post(url: string, body?: JsonValue, options?: HttpRequestOptions): Promise<HttpResponse | HttpBinaryResponse>`
+
+派发 POST 请求；宿主会序列化非字符串 JSON 请求体。
+
+```javascript
+const receipt = await fb.http.post('https://api.example.com/submit', { title: 'test' });
+if (receipt.success === false) throw new Error(receipt.error);
+```
+
+## put(url, body?, options?)
+
+签名：`fb.http.put(url: string, body?: JsonValue, options?: HttpRequestOptions): Promise<HttpResponse | HttpBinaryResponse>`
+
+发出 PUT 请求，请求体与选项的语义同 `post()`。
+
+```javascript
+await fb.http.put('https://api.example.com/items/42', { title: '新标题' });
+```
+
+## delete(url, body?, options?)
+
+签名：`fb.http.delete(url: string, body?: JsonValue, options?: HttpRequestOptions): Promise<HttpResponse | HttpBinaryResponse>`
+
+发出 DELETE 请求。可选的请求体是第二个位置参数。
+
+```javascript
+await fb.http.delete('https://api.example.com/items/42');
+```
+
+## patch(url, body?, options?)
+
+签名：`fb.http.patch(url: string, body?: JsonValue, options?: HttpRequestOptions): Promise<HttpResponse | HttpBinaryResponse>`
+
+发出 PATCH 请求，请求体与选项的语义同 `post()`。
+
+```javascript
+await fb.http.patch('https://api.example.com/items/42', { title: '新标题' });
+```
+
+## head(url, options?)
+
+签名：`fb.http.head(url: string, options?: Omit<HttpRequestOptions, 'responseType'>): Promise<HttpHeadResponse>`
+
+派发 HEAD 请求。与 `get()` 类似，请求默认异步执行；指定 `{ async: false }` 可直接获取完整响应，否则响应通过 `http:response` 事件送达。同步响应可能包含解析后的便利字段 `contentLength`。
+
+```javascript
+const res = await fb.http.head('https://example.com/file.zip', { async: false });
+if (res.success === false) throw new Error(res.error);
+console.log(res.status, res.contentLength);
+```
+
+## request(url, options?)
+
+签名：`fb.http.request(url: string, options?: HttpRequestOptions): Promise<HttpGetSuccess | HttpBinarySuccess>`
+
+发起事件驱动的 GET 请求，等到对应的 `http:response` 事件到达后兑现；宿主同步返回的应答同样可以处理。客户端超时时间默认为 35 秒；若指定了 `options.timeout`，则客户端超时时间自动设置为 `options.timeout + 5000` 毫秒。SDK 在每条完成路径上都会移除事件监听并清除超时计时。
+
+与其他方法不同，`request()` 仅在收到成功响应时 resolve，发生错误时一律 reject：若宿主同步返回错误，则抛出以 `error` 为消息的 `Error`；若通过 `http:response` 事件接收到失败，则将完整载荷附加在错误对象的 `response` 属性上；客户端看门狗超时同样触发 reject。
+
+```javascript
+try {
+  const response = await fb.http.request('https://api.example.com/data');
+  console.log(response.status, response.body);
+} catch (err) {
+  console.error('请求失败：', err);
+}
+```
+
+## download(url, saveTo, options?)
+
+签名：`fb.http.download(url: string, saveTo: string, options?: HttpDownloadOptions): Promise<HttpDownloadResponse>`
+
+将 URL 下载到本地路径。默认以 60 秒宿主超时同步执行；传入 `{ async: true }` 时，完成结果通过 `http:downloadComplete` 发出，并用 `requestId` 关联。
+
+```javascript
+const receipt = await fb.http.download(
+	'https://example.com/cover.jpg',
+	'C:\\Covers\\cover.jpg',
+	{ async: true }
+);
+```
+
+## abort(requestId)
+
+签名：`fb.http.abort(requestId: string): Promise<HttpAbortResponse>`
+
+根据回执中的 `requestId` 取消进行中的异步请求或下载。若请求已结束，返回结果中的 `cancelled` 为 `false`。
+
+```javascript
+const receipt = await fb.http.download(
+	'https://example.com/cover.jpg',
+	'C:\\Covers\\cover.jpg',
+	{ async: true }
+);
+if (receipt.success === false) throw new Error(receipt.error);
+if (receipt.requestId) {
+	await fb.http.abort(receipt.requestId);
+}
+```
+
+## disableDefaultDownloadLogger()
+
+签名：`fb.http.disableDefaultDownloadLogger(): void`
+
+移除模块级默认日志器；该日志器会通过 `console.warn` 报告未取消的 `http:downloadComplete` 失败。此操作可重复调用。
+
+```javascript
+fb.http.disableDefaultDownloadLogger();
+fb.on('http:downloadComplete', (e) => {
+	if (e.success === false && !e.cancelled) console.error('下载失败：', e.error);
+});
+```
+
+## 请求选项
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `headers` | `Record<string, string>` | 请求头 |
+| `timeout` | `number` | 宿主超时，单位毫秒，默认 `30000` |
+| `async` | `boolean` | 为 `true` 时异步派发；各请求方法默认为 `true` |
+| `redirect` | `'follow' \| 'error' \| 'manual'` | 重定向策略，默认 `follow` |
+| `responseType` | `'text' \| 'base64' \| 'arraybuffer' \| 'binary'` | 响应体的解码方式 |
+| `insecureTls` | `boolean` | 请求跳过无效证书检查，宿主的高级设置也允许时才生效 |
+
+`arraybuffer` 与 `binary` 由 SDK 将宿主传回的 Base64 响应体解码为 `ArrayBuffer`。携带凭据或个人数据的请求请勿启用 `insecureTls`。已弃用的 `verifyTls`、`sync` 选项，以及 `download()` 的 `requestId` 选项均已失效且不再传递给宿主。
+
+## 事件
+
+- `http:response` 携带回执中的 `requestId` 与结果：成功时包含 `status`、`headers`、`body`、`responseType`（HEAD 请求额外包含 `contentLength`）；失败时包含 `error` 与 `code`（若被 `abort()` 取消，则包含 `cancelled: true`）。
+- `http:downloadComplete` 携带 `requestId`：成功时包含 `status`、`bytesWritten`、`path`；失败时包含 `error` 与 `code`（若被 `abort()` 取消，则包含 `cancelled: true`）。

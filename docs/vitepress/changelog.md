@@ -1,0 +1,580 @@
+# Changelog
+
+## v2.2.0 (2026-11-11)
+
+### New features
+
+#### Keyboard
+- **Key presses in the WebView run foobar2000 keyboard shortcuts**: while a page has the focus, the commands the user bound under Preferences > Keyboard Shortcuts run. A key without a shortcut reaches the page. In a text box, typing and text editing keys stay with the page; outside a text box, single keys such as Space, letters and the arrow keys can run shortcuts as well. The component's preferences, Window > Keyboard shortcuts, select the keys that take part. By default these are combinations with Ctrl, Alt or Win, Ctrl with an arrow key included, and F1 to F24; single keys need "Other keys". A key held down runs its shortcut once. See [Keyboard shortcuts inside the WebView](./api/keyboard.md#keyboard-shortcuts-inside-the-webview).
+- **[`keyboard.setReservedKeys`](./api/keyboard.md#keyboard-setreservedkeys) keeps combinations for the page**: a listed combination reaches the page even when foobar2000 has a shortcut for it, so a theme's own shortcut takes precedence over the user's binding. The list belongs to the page and is cleared when the page navigates or reloads and when its window closes.
+- **`all` on `keyboard.setReservedKeys` keeps every key for the page**, for example while the page records a shortcut in its own editor. System-wide hotkeys and F12 in development server mode still take effect.
+
+#### Context menu
+- **Context-menu commands can name the tracks they act on**: [`discovery.executeContextMenuCommand`](./api/discovery.md#discovery-executecontextmenucommand) and [`discovery.executeContextMenuByPath`](./api/discovery.md#discovery-executecontextmenubypath) take a `target`:
+  - `selection`: the selection that foobar2000's own context-menu shortcuts use.
+  - `nowPlaying`: only the playing track.
+  - `playlistSelection`: only the selection in the active playlist.
+  - `auto`, the default: the playing track, or the selection in the active playlist when nothing is playing, as before.
+
+#### Panels
+- **The Default UI edit-mode placeholder identifies the panel**: it shows the panel name, the page source and the options that are turned on, so several WebView panels in one layout can be told apart. It uses Default UI's colours and font, scales with DPI and leaves out less important lines when space is short. Double-clicking the placeholder opens the panel configuration.
+- **The panel configuration dialog can create a template and open the template folder**: New... and Open Folder are next to the template drop-down. A new name follows the rules of the preferences page: letters, numbers, hyphens and underscores only, and no name already in use, ignoring case. The new template is selected and is written to the panel configuration only when OK is clicked.
+- **The panel configuration dialog has a new layout**: the settings form two groups, Page and Behavior, and Edge Style is now under Behavior. "Allow this site to access…" appears only after an external URL is entered; it used to be shown greyed out.
+
+#### Playlists
+- **[`playlist.getAutoplaylistQuery`](./api/playlist.md#playlist-getautoplaylistquery) reads the query and sort of built-in autoplaylists**: for a list driven by foobar2000's own query/sort client, such as one created in Default UI or with `playlist.createAutoplaylist`, `query` is the current query and the new `sort` is the sort expression, an empty string when none is set. Both are read on every call. For lists of other providers and lists managed by this component, `query` and `sort` are `null`, and `note` gives the reason. Earlier versions return `query: null` for every list and no `sort` field.
+
+### Changes
+
+- **[`keyboard.registerHotkey`](./api/keyboard.md#keyboard-registerhotkey) refuses combinations that would take common keys from every program**: a combination must contain Ctrl, Alt or Win; a media key can be registered alone. Ctrl+A, C, V, X, Y and Z, Ctrl+Shift+Z, Ctrl+Esc, Alt+F4, Alt+Tab and Alt+Space are refused as well. A refused combination fails with `INVALID_PARAMS`. These combinations used to register, but no hotkey ever fired (see Fixed).
+- **A taken combination is reported with its holder**: when this component has already registered the combination, [`keyboard.registerHotkey`](./api/keyboard.md#keyboard-registerhotkey) fails with `OPERATION_FAILED`, and `details` gives the `id` and `windowId` of that registration. When another program or a global foobar2000 shortcut holds it, the call fails with `OPERATION_FAILED`, and `details.win32Error` holds the Windows error code.
+- **Hotkeys are released when the window that registered them closes**: a hotkey used to stay registered after its window closed, and its presses went to the main window's page. A Default UI or Columns UI layout has no main window page, so a closed panel kept the combination and a recreated panel could not register it again.
+- **Hotkey entries of [`keyboard.getRegisteredHotkeys`](./api/keyboard.md#keyboard-getregisteredhotkeys) have a new `windowId`**: the window that registered the hotkey and receives its presses.
+- **Ctrl+P, Ctrl+O and Ctrl+N follow the user's foobar2000 bindings**: while a page had the focus, these combinations always opened Preferences, opened files and created a playlist, whatever the user had bound. They now run the shortcuts set under Preferences > Keyboard Shortcuts, like any other key. A combination without a binding reaches the page.
+- **F5 reloads a page that has the focus unless the page handles the key**: F5 used to reach the page as an ordinary key press, and the page reloaded only when the focus was outside it, or through the browser when developer tools were enabled. The page now receives the key press first. When no `keydown` listener calls `preventDefault()`, the component reloads the page, in every window type. While the page is loading or after it failed to load, F5 reloads at once. See [Keyboard shortcuts inside the WebView](./api/keyboard.md#keyboard-shortcuts-inside-the-webview).
+- **`keyboard.registerShortcut` is deprecated and will be removed in 3.0**: it stores the combination, but no key press is matched against it. For shortcuts inside the page, listen for `keydown`.
+- **`fb.GetLibraryItems` in the SMP compatibility layer is faster**: it pages through `library.search` and reads only the fields that handles use. On a library of about 100,000 tracks, the call took about 0.8 seconds instead of 4.2 in testing. It returns the same tracks in the same order.
+
+### Fixed
+
+#### Keyboard
+- **Hotkeys registered with [`keyboard.registerHotkey`](./api/keyboard.md#keyboard-registerhotkey) fire**: they were registered on the foobar2000 main window, whose `WM_HOTKEY` messages the component does not receive, so registration succeeded but `keyboard:hotkey` was never sent. Hotkeys are now registered on a message window of the component, and a press goes to the window that registered the hotkey. A page's hotkeys are released when the page navigates or reloads, so a reloaded page can register the same combination again. All hotkeys are released when foobar2000 exits.
+
+#### Tag Writing
+- **WAV tag writes no longer destroy non-ASCII tags**: [`metadata.write`](./api/metadata.md#metadata-write), [`metadata.writeBatch`](./api/metadata.md#metadata-writebatch), [`metadata.removeTag`](./api/metadata.md#metadata-removetag), [`metadata.removeField`](./api/metadata.md#metadata-removefield), the tag fallback of [`rating.set`](./api/rating.md#rating-set), the embedded target of `lyrics.save` and [`replaygain.clear`](./api/replaygain.md#replaygain-clear) refuse to write a WAV file whose tags would then contain non-ASCII text. They fail with `NOT_SUPPORTED`, `details.reason` is `wavInfoNonAscii`, and the file is unchanged. foobar2000 stores WAV tags in the RIFF INFO chunk as ASCII and writes every other character as `?`. It also reads a GBK-encoded INFO chunk as Latin-1, so rewriting such a file, even to change another field, replaces its original tags with `?` for good. WAV files whose tags are all ASCII are written as before, and other formats are not affected.
+
+#### Media Reading and Artwork
+- **Media stream and cover URLs work in pages loaded through a folder mapping**: in pages loaded through a folder mapping such as `foo-ui-webview2.local`, which is how packaged themes load, the media stream and cover URLs issued by the host always failed with `ERR_FILE_NOT_FOUND`. Both kinds of URL now use the host `fb2k-routes.invalid`, which no folder mapping covers. These URLs are cross-origin for every page, so a page that reads cover pixels from a canvas must set `crossorigin` on the `<img>`.
+- **A stuck cloud or network read no longer blocks local reads**: cover and lyrics reads shared one queue, so a read of a cloud placeholder file or an unreachable network share that hung made every later local read time out until foobar2000 was restarted. Files on network shares and mapped drives, and files that are only in the cloud, are now read on a separate queue.
+- **Reading the cover of a cloud-only file no longer downloads the file**: for a file on a local drive that is only in the cloud, [`artwork.getCurrent`](./api/artwork.md#artwork-getcurrent), [`getByPath`](./api/artwork.md#artwork-getbypath), [`getForTrack`](./api/artwork.md#artwork-getfortrack), [`getByPlaylistItem`](./api/artwork.md#artwork-getbyplaylistitem), [`getBatch`](./api/artwork.md#artwork-getbatch), [`getAvailableTypes`](./api/artwork.md#artwork-getavailabletypes), [`getAvailableArtwork`](./api/artwork.md#artwork-getavailableartwork) and `getMetadata` report no cover without opening the file. They used to download the whole file. Thanks to [@Sijie20](https://github.com/Sijie20) for reporting.
+
+#### Playlists
+- **[`playlist.replaceAllAndPlay`](./api/playlist.md#playlist-replaceallandplay) plays the track that `playIndex` names**: the rows it wrote were deduplicated and sorted by the user's order for incoming items, while `playIndex` counted the sorted rows, so another track played whenever that order differed from `paths`. The rows now follow the order of `paths`; when every path is one track, `playIndex` is the index of the path to play. Duplicate paths are kept, and the tracks of a folder are added in the order foobar2000 expands the folder. Thanks to [@LYY-LZH](https://github.com/LYY-LZH) for reporting.
+
+#### Panels
+- **Right-clicking a panel in Default UI edit mode opens Default UI's standard edit menu**: Replace, Cut, Copy and Paste are available, and Configure... is in the same menu. Only Configure... used to appear.
+- **A panel created while edit mode is on shows its placeholder at once**: it used to show the page at full size, so the page received the right-click and the panel could not be configured.
+- **Transparent areas of a panel follow foobar2000's colours**: where the page draws no background, the panel shows the host's current background colour: Default UI's background colour in a Default UI panel, and the Columns UI global background colour in a Columns UI panel. When the colours are changed in Preferences, these areas change at once. A Default UI panel used to keep the colour it had when it was created, and a Columns UI panel was always white.
+- **The panel setting "Transparent Background" takes effect when the panel is created**: a panel saved as opaque stays opaque after foobar2000 restarts or the panel is rebuilt; the setting used to apply only when it was toggled. The opaque background is now the host's background colour instead of a fixed dark grey (`#1e1e1e`).
+- **The name dialog for creating and renaming templates follows foobar2000's light and dark mode**: it was always light.
+- **The starter page of a new template uses neutral grey text**: the text was white and could not be read where the transparent part of a panel shows a light background. Existing templates are not changed.
+
+## v2.1.0 (2026-10-27)
+
+### New features
+
+#### Playback and JIT Session <Badge type="warning" text="experimental" />
+- **Document-bound playback ([`jitSession`](./api/jit-session.md))**: keeps playback attempts and operation results across page reloads, binds control to the calling document, and supports explicit handover between windows. A next entry can be withdrawn without stopping the current track; near the end of a track when foobar2000 may have already picked the next entry, withdrawal is rejected with `nextPreselected`. When the next entry is not ready, `skip` rejects the request without affecting the native playback queue. When a new resource for `jitSession.play` is still being resolved, the new attempt remains pending even if the previous track ends. When native playback advances to the buffered next entry, unfinished attempts and operations from the previous entry are marked as `superseded` rather than reported as EOF. `jitSession.release` resolves only after the buffer has cleared; if clearing fails, retrying with the same `requestId` returns the same error. Existing `jitQueue` methods retain their behavior.
+- **Client state synchronization ([`JitSessionClient`](./sdk/jit-session.md))**: manages credentials, serializes commands, reconciles missed events, and awaits operation results. Missed terminal events are queried automatically during waiting; if further event gaps occur during reconciliation, querying continues until states are aligned.
+- **Native playback adoption (`prepareAdoption`)**: snapshots the active track, native playback queue entries, and the source playlist without mutating them; `jitSession.getNativeContext` paginates the snapshot, and `jitSession.adoptNative` adopts the active track without playback interruption. Stopping or releasing the session restores remaining queue items to native playback. `jitSession.playNative` and `jitSession.setNativeNext` play or buffer source rows or queue items from the adopted context, while `jitSession.setNativeQueue` removes or reorders pending return items. When the source playlist has no remaining items, the final queue item is returned through a host-retained single-track playlist (`__webview_restore__`) to stop after playback completes. Calling `jitQueue` methods during adoption continues as normal, leaving the session `stopped` and only permitting release of the adopted context. `getCapabilities()` reports `adoption: true`.
+- **Failure recheck diagnostics (`attemptRechecked`)**: when a playback attempt ends as `unknown` within its first second, the host reopens the resource and reports whether it failed again along with specific reasons (`accessDenied`, `notFound`, `unsupportedContent`, `network`), as well as whether foobar2000 recorded a playback failure. `getCapabilities().failureRecheck` is `true`; `preciseFailure` remains `false`.
+- **Background execution**: while a `jitSession` is active, minimizing the window, hiding it to the notification area (tray), or locking the screen no longer freezes the controlling page: the page continues responding to `jitSession:needNext`, preventing playback stalls past buffered entries. The page remains hidden with lowered memory allocation; deep suspend resumes once the session stops or is released. `getCapabilities().backgroundExecution` is `true`.
+
+#### Media Library and Incremental Sync
+- **Incremental library sync ([`library.getChanges`](./api/library.md#library-getchanges) / [`library.getTracks`](./api/library.md#library-gettracks))**: enable pages to maintain local library caches with incremental synchronization. `library.getChanges` returns persistent revisions surviving restarts alongside tracks added, modified, or removed since a given revision; offline changes made while foobar2000 was closed arrive once startup indexing finishes. `library.getTracks` fetches track rows for up to 5,000 handles per call. See [Keeping a local copy](./api/library.md#keeping-a-local-copy).
+- **Granular change notifications and batch handles**: [`library:itemsAdded`](./api/events.md#library-itemsadded), `library:itemsRemoved`, `library:itemsModified`, and [`metadb:changed`](./api/events.md#metadb-changed) add `handles` and `truncated`. `handles` lists each modified track's `handle`; when more than 5,000 tracks change simultaneously, `truncated` is `true` and `handles` is empty. Pass `handles` to `titleformat.evalFieldsBatch` to read only changed rows. Tag edits no longer rebuild directory indexes used by `library.getRoots` and `library.browseTree`. `fb-playlist-view` immediately re-reads modified track rows without waiting for scroll events, and the SMP compatibility layer's `on_metadb_changed` accepts up to 5,000 modified tracks at once (previously 50).
+- **Third-party hook refresh bypass ([`library:itemsModified`](./api/events.md#library-itemsmodified))**: adds `fromHook`. Set to `true` when a component such as foo_playcount requests foobar2000 to refresh external fields rather than actual tag edits. On such changes, the host discards only the cached `library.getAll` list while retaining other library caches, so playback-driven play count and rating writes no longer rebuild `library.getRoots` or `library.getAlbums`. SDK library tree components do not reload on this event.
+
+#### Playlists and Queue
+- **Version tracking and conflict protection (`contentVersion`)**: `playlist.getTracks`, `getTracksAt`, `getSelectedTracks`, `getSelection`, `getMatchingRows`, `getGroupRuns`, and [`queue.get`](./api/queue.md) return `contentVersion`. It increments whenever rows are inserted, deleted, reordered, or replaced—even if total count is unchanged—preventing pagination mismatches across differing versions. `playlist.insertTracks`, `removeTracks`, `moveTracks`, `reorder`, `setSelection`, and `queue.remove`, `moveToTop`, `setContents`, `insertNext`, `playNow` accept `expectedVersion`: if target rows changed since that version, the call fails with `STALE_TARGET` without making mutations, and returns the updated version on success. `playlist:itemsAdded`, `itemsRemoved`, `itemsReordered`, `itemsReplaced`, and `playback:queueChanged` events carry the updated version. `playlist.playTrack` and `setFocusedTrack` also accept `expectedVersion`. `queue.add`, plus playlist row items passed to `queue.setContents` or `queue.insertNext`, accept `expectedPlaylistVersion` for the source playlist's `contentVersion`. SDK methods place `expectedVersion` as their final optional parameter.
+- **Managed autoplaylists ([`playlist.createManagedAutoplaylist`](./api/playlist.md#playlist-createmanagedautoplaylist))**: creates managed autoplaylists whose query strings, sort rules, and keep-sorted settings can be read via `playlist.getAutoplaylistConfig` and updated via `playlist.setAutoplaylistConfig`. Query execution remains native within foobar2000, but managed playlists require foo_ui_webview2 to remain installed. Updates must include the base `revision`; conflicting revisions fail with `details.reason: 'revisionConflict'`. Config updates broadcast [`playlist:autoplaylistConfigChanged`](./api/events.md#playlist-autoplaylistconfigchanged). Other autoplaylists (including those created by `playlist.createAutoplaylist`) do not support configuration reads or updates.
+- **Native autoplaylist editor invocation ([`playlist.showAutoplaylistUI`](./api/playlist.md#playlist-showautoplaylistui))**: opens the native editor for a specified autoplaylist by index or `playlistGuid` without activating the playlist or starting playback. The request returns immediately once accepted; native editor execution status is communicated via [`playlist:autoplaylistUIResult`](./api/events.md#playlist-autoplaylistuiresult) (reflecting invocation success rather than user save/cancel actions). `playlist.getAutoplaylistInfo` adds `editorAvailability` and `editorAvailabilityReason` to check editor availability without opening windows. The SDK adds `playlist.showAutoplaylistUI` and `playlist.onAutoplaylistUIResult`.
+- **Path expansion status tracking ([`playlist:addComplete`](./api/events.md#playlist-addcomplete))**: carries `status`: `completed`; `partial` or `failed` with `reason` (`targetRemoved`, `locked`) if the target playlist is removed or locked before expanded items are inserted; or `cancelled` when user cancels expansion.
+
+#### Context Menu and Actions
+- **Pre-execution menu validation ([`menu.runContextCommandById`](./api/menu.md))**: supports pre-execution menu state validation: pass the node's `path` as `expectPath` and the `targetKey` reported by `menu.getContextMenu` as `expectTarget`. If tracks, the command ID, or command availability change after opening the menu, execution fails with `details.reason` without performing any action, preventing unintended execution. Calls omitting these parameters retain their previous behavior. The SMP layer's `RunContextCommandWithMetadb` and `ContextMenuManager.ExecuteByID` now use this check.
+- **Native command completion feedback**: `menu.runMainMenuCommand`, `menu.runContextCommand`, and `menu.runContextCommandById` responses include `completion: 'unknown'`: the command is handed over to foobar2000 for native execution; the host does not track whether execution has finished or whether opened dialogs were cancelled.
+
+#### Window and Bridge Infrastructure
+- **Scale factors and coordinate conversion**: `window.getZoom` returns `textScaleFactor`, and `window.setDragRegions`, `window.setNoDragRegions`, and `window.setClickThroughExcludeRegions` return `scale` (the scale factor applied to rectangle coordinates).
+- **Invocation timeout protection**: calls without responses within 30 seconds reject with `code: 'TIMEOUT'` naming the method in the error message. Note that the operation may have already completed in the host; see [Operation results](./reference/bridge.md#operation-results).
+- **Native tray click action ([`tray.setClickAction`](./api/tray.md#tray-setclickaction))**: with `toggleMainWindow`, a left click on the tray icon hides or shows the main window natively, without running page code, so it responds even while the page is suspended; a double-click toggles once. The default `event` keeps sending `tray:click` and `tray:doubleClick`. The action can be set before `tray.create` and is reset to `event` by `tray.destroy`; in panels the call fails with `PANEL_MODE_UNSUPPORTED`. Remove window commands from existing click handlers before switching.
+
+### Changes
+
+- **DnD capability reason enum cleanup**: `dnd.getCapabilities` and `dnd:capabilitiesChanged` remove `displaced` from `pathsUnavailableReason` type definitions (the host never reported this value). Remove comparisons against `'displaced'` in TypeScript code.
+- **Standardized playlist column IDs**: `fb-playlist-view` no longer accepts localized Chinese column display names (播放次数, 首次播放, 最近播放, 添加日期, 等级) as column IDs. Use canonical IDs (`play_count`, `first_played`, `last_played`, `added`, `rating`), or supply the column `pattern` from `fb.playlist.getAvailableColumns()` in `formats`; see [Playlist components](./components/playlist.md).
+- **Non-local panel URL permission gate**: non-local panel URL overrides (not on `localhost`, `127.x.x.x`, or `[::1]`) require enabling **Allow this site to access foobar2000 and this computer** in [panel configuration](./how-to/panels.md) before API calls are permitted; until enabled, pages render normally but API calls fail with `ORIGIN_DENIED`. URLs configured before upgrading retain permission. Changing URLs or disabling the setting takes effect immediately upon confirming the dialog without restarting foobar2000.
+- **Main menu commands addressed by full identity ([`menu.runMainMenuCommand`](./api/menu.md#menu-runmainmenucommand))**: a slash-separated path must match every ancestor; a wrong prefix no longer falls back to another command with the same leaf name. A dynamic leaf addressed by GUID needs both `guid` and `subGuid`, and a dynamic container cannot be run. The response carries `guid` also when a name or path was resolved. In menu trees, `executable` on a main-menu item means its address is unique and complete, whether or not the item is enabled; `unaddressableReason` adds `ambiguousMatch`, `missingDynamicIdentifier`, `dynamicParent` and `incompleteHierarchy`, and an ambiguous item lists `addressCandidates` for diagnosis only. `discovery.executeMainMenuCommand` fails with `MENU_MATCH_AMBIGUOUS` or `MENU_ITEM_DISABLED` for ambiguous or disabled commands. When the menu state cannot be read, `menu.getMainMenu`, `menu.runMainMenuCommand` and `discovery.executeMainMenuCommand` fail with `OPERATION_FAILED` instead of treating the item as enabled.
+- **`window.focus` in panels**: called from a DUI/CUI panel without `windowId`, [`window.focus`](./api/window.md#window-focus) brings the foobar2000 main window to the foreground instead of failing with `PANEL_MODE_UNSUPPORTED`. Success means the request was made; Windows may still refuse the foreground.
+
+### Fixed
+
+#### Window Scaling and High-DPI Adaptation
+- **Text scaling title bar hit-testing and DPR alignment**: fixed scaling and title bar hit-testing in standalone windows when Windows text scaling exceeds 100% (Settings > Accessibility > Text size): custom buttons in title bars are no longer misidentified as drag regions, `devicePixelRatio` aligns with actual page scale, and `app-region` areas align with the page. Dynamic text size adjustments while running are supported.
+- **Custom drag region scale conversion**: fixed `window.setDragRegions`, `window.setNoDragRegions`, and `window.setClickThroughExcludeRegions` coordinate calculations to convert using page `devicePixelRatio` (combining page zoom and Windows text scaling). Page code manually multiplying rectangles by zoom should remove that multiplication. `window.setMaximizeButtonRegion` also incorporates text scaling.
+- **Popup URL query parameter concatenation**: fixed URL query string corruption in `window.createPopup`. `.html` pages containing existing queries (`page.html?mode=1`) or hash fragments properly append `&windowId=...` instead of a second `?`.
+- **Window protection without active tray icon**: fixed window disappearance when "Minimize to tray" or "Close to tray" is enabled without an active tray icon. If `tray.create` was not called, minimize and close actions fall back to taskbar minimization. Calling `tray.destroy` also restores main windows currently hidden to the tray.
+- **System drive media permission relaxation**: updated permission checks for `shell.showInExplorer`, `shell.openWith`, `clipboard.writeFiles`, and `artwork.getFolderImages` to [`MediaRead`](./reference/permissions.md) (previously `Read`), allowing media library and playlist files located on system drives to be revealed in Explorer, opened with default apps, or copied to clipboard.
+- **Windows 10 backdrop and corner fallback**: on Windows 10, requests for Mica, Mica Alt or Acrylic fall back to a solid background, and the host no longer asks for rounded corners. The window capabilities `supportsCornerPreference` and `supportsMicaAlt` report `false` there. Windows 11 is unchanged.
+- **Popup edge resizing**: popups with `behavior.noActivate`, or ones that have entered click-through mode, resize by their edges without entering Windows' modal sizing loop, so the page keeps rendering during the drag. For other popups, rapid size updates during a drag are merged and the final size is always applied.
+
+#### Runtime and Diagnostics Stability
+- **WebView2 creation failure native error dialog**: fixed silent startup failure when WebView2 cannot be created in standalone mode (e.g. missing runtime). Displays a native error dialog explaining the issue with options to copy diagnostic info, open preferences, or open the console.
+- **Runtime unavailable native fallback menu**: fixed missing fallback UI when WebView2 is unavailable. Right-clicking the window client area displays a native context menu providing Preferences, Console, Reload, Error details, and Exit.
+- **Lifecycle diagnostic logging**: improved `webview_lifecycle.log` in the profile folder to record component and foobar2000 versions, Windows build, WebView2 runtime version, active data folder, DPI awareness, compatibility flags, WebView2 environment variables, and elevation status at startup and on failure, including HRESULT error codes.
+- **Custom menu crash protection**: fixed crash when calling `ui.showCustomMenu`. Thanks to [@MoveToEx](https://github.com/MoveToEx) for reporting.
+- **Slow storage cover wall responsiveness**: fixed main window unresponsiveness caused by cover wall loading on slow or cloud-backed storage. Thanks to [@Sijie20](https://github.com/Sijie20) for reporting.
+- **Offline network share timeout non-blocking**: fixed main thread blocking during network timeouts in `file.read`, `file.exists`, `file.list`, and `file.getInfo` for disconnected network shares or mapped drives; slow-call console logs now report specific file paths.
+- **Lyrics reads off the main thread**: `lyrics.get` and `lyrics.exists` read tags and lyrics files on a background thread, so media on slow or cloud storage no longer freezes the window.
+- **No probing of unrelated network drives**: checking a local media path no longer opens every mapped network share, so a disconnected mapped drive no longer delays reads of local files.
+
+#### JIT Queue Mechanisms
+- **Shadow playlist row attribution**: fixed `jitQueue` track attribution to identify entries by shadow playlist row rather than raw path, preventing session termination on plain paths, duplicate buffering consumption on replay, and properly terminating sessions when playing different files.
+- **Subsong path playback accuracy**: fixed `jitQueue.playNow` and `jitQueue.enqueueNext` handling of subsong paths (`path|subsong:N`): local paths no longer play subsong 0 by default, and streaming URLs containing query strings play correctly.
+- **Resolution race conditions and supersession**: fixed race conditions when resolving `jitQueue` tracks: superseded tracks (from newer `playNow`, `enqueueNext`, `stop`, `clear`, `preloadBatch`, or manual track changes) are discarded without triggering error events, and replaced next tracks do not reinsert stale resources into buffers.
+- **Consecutive call conflict resolution**: fixed consecutive `jitQueue.playNow` calls failing with `OPERATION_FAILED`: newer requests supersede in-flight resolutions cleanly.
+- **Native playback queue preservation**: fixed `jitQueue.playNow` and `jitQueue.skip` preserving native playback queues: queued tracks remain intact during JIT playback, playing sequentially after JIT items finish. When no buffered items remain, `skip` executes foobar2000 native Next.
+- **Late resolution result protection**: fixed late `jitQueue` resolution results interrupting newer tracks after native playback advances; replaying current tracks preserves pending next track resolutions.
+
+#### Media Library and Playlists
+- **Startup initialization field correction**: fixed `library.getStatus` `initialized` field to accurately indicate whether startup library indexing has completed (previously duplicated `enabled`).
+- **Malformed UTF-8 tag tolerance**: fixed malformed UTF-8 handling in tags: album lists, metadata reads, and lyrics return successfully with invalid characters safely replaced (U+FFFD) for display without modifying underlying files.
+- **Damaged duplicate album identity preservation**: fixed album deduplication for damaged names: albums displaying identical damaged names maintain distinct identities; SDK and library tree preserve identities and embedded CUE subsongs during loading. Such album rows carry `albumId`; pass it to `library.getAlbumTracks` to read that album's tracks.
+- **Malformed tag serialization tolerance**: fixed metadata serialization failure on malformed tags: invalid tag names are omitted without overwriting valid fields, and malformed tag values or codec text no longer interrupt asynchronous metadata serialization.
+- **Expansion cancellation event completion**: fixed `playlist.addPathsAsync` omitting completion events when cancelling progress dialogs: cancellations now reliably emit `playlist:addComplete` with `status: 'cancelled'`.
+- **Tracks inside archives**: methods whose paths are checked as [`MediaRead`](./reference/permissions.md) accept tracks inside archives (`unpack://…`) and portable-relative paths (`file-relative://…`); the host checks the archive's actual location. Previously these calls failed with `PERMISSION_DENIED`. Nested archives and archive paths with non-ASCII names are also parsed correctly.
+- **Portable profile under system folders**: when portable foobar2000 is installed under `C:\Program Files`, `C:\Program Files (x86)` or `C:\ProgramData`, pages can read and write its profile folder; the install folder itself stays blocked. The Pictures folder joins the folders readable on the system drive.
+- **Full-track waveform decoded format**: `audio.generateFullWaveform` and `audio:fullWaveformReady` size the waveform windows by the PCM format the decoder actually outputs, and `sampleRate` and `channels` report that format, which can differ from the file's nominal one. Previously the windows followed the nominal sample rate, so the waveform did not line up with the track when the two differed.
+
+#### Drag and Drop Interaction
+- **Internal drag-and-drop reordering**: fixed internal drag-and-drop reordering in standalone windows: page-initiated drags with `dropEffect: 'move'` drop correctly, allowing row and tab reordering without forbidden cursor states or lost `drop` events. External drag-ins continue as copy operations; panel embedded modes remain unchanged.
+- **Unhandled element drop rejection**: fixed unintended file drop acceptance on unhandled text boxes and `contenteditable` elements: unhandled elements reject file drops with forbidden cursors and emit no `dnd:drop` events. File input controls and text selection drag-and-drop remain functional.
+
+## v2.0.0 (2026-10-06)
+
+Starting with this release, foo_ui_webview2 follows semantic versioning: the 2.x series will contain no further breaking changes. See [Versioning and compatibility](/reference/versioning).
+
+::: warning Breaking changes in this release
+- Calls with an undeclared parameter key (other than one starting with `_`), a value of the wrong type or a missing required value fail with `INVALID_PARAMS`, and `error` names the parameter. Previously, extra keys were ignored.
+- Only pages the host trusts can call the API. Calls from a popup at an `http(s)` URL its opener does not trust, a page that navigated away from a trusted origin, a `file://` page or, in development mode, a page not on the configured server fail at once with `ORIGIN_DENIED`, and such pages receive no events. See [Which pages can call the API](/reference/security#which-pages-can-call-the-api).
+- SDK list methods now resolve with the host's envelope and no longer throw on failure: `playlist.getAll`, `getTracks`, `getSelectedTracks` and `getAvailableColumns`, `output.getDevices`, the `system` and `config` lists, and `playcount.get`. Read lists from the corresponding field, or use `unwrap`.
+- Generated SDK `XxxResponse` types are now `XxxSuccess | ApiFailure`; check `success` before reading fields. Several event payload types are narrower, `artwork.getAvailableArtwork` requires `path`, `metadata.embedArtwork` requires `opts`, and `FbBaseElement._sub` accepts only names listed in `FBEventName`. These affect TypeScript builds only.
+- Without a host, SDK calls resolve with `{ success: false, code: 'NOT_SUPPORTED', error, details: { method } }` instead of `{ mock: true, method }`. To run a page against fake data, assign a stand-in to `window.fb2k`.
+- Track events carry the shared `Track` and no longer include `id` or `fullPath`; read `handle` instead. This affects `playback:trackChanged`, `playback:edited`, `playback:itemPlayed`, and the `track` and `nowPlaying` of `selection:changed`.
+- `library.getAlbumTracks` now takes the `name` (as `album`) and `albumArtist` of a `library.getAlbums` row; both are required, and `artist` is no longer accepted. The result reports `albumArtist` instead of `artist`.
+- Some calls now fail differently:
+  - On a locked playlist, `library.addToPlaylist`, `playback.playPath` and `playback.playPaths` fail with `LOCKED` (previously they reported success), and `queue.addPaths` fails with `LOCKED` (previously `OPERATION_FAILED`), with `playlist` and `isLocked` moved into `details`.
+  - Without an active playlist, `queue.add` fails with `NO_ACTIVE_ITEM` (previously `INVALID_INDEX`).
+  - `artwork.getByPlaylistItem` with a playlist index past the last playlist fails with `INVALID_INDEX` (previously `NOT_FOUND`).
+  - Negative rows and queue positions fail with `INVALID_PARAMS` (previously they were dropped, or failed with `INVALID_INDEX` in `playlist.reorder` and `reorderPlaylists`).
+  - A context menu whose `handles` are all unusable fails with `INVALID_PARAMS` instead of acting on the playing track, the selection or the playlist.
+- File drops are accepted only where the page calls `preventDefault()` in its `dragover` handler; elsewhere the cursor shows the forbidden sign and no `dnd:drop` is sent.
+- `lyrics.save` no longer accepts `config`, and `all` writes only `file` and `embedded`. Subsongs no longer read numbered or shared album lyrics files automatically; specify the file with `filename`. Existing lyrics are not deleted; see the [migration notes](/api/lyrics#migrating-older-callers).
+:::
+
+### New features
+
+- Playlists can be specified by GUID. `playlist.getAll`, `getActive`, `getPlaying`, `create`, `duplicate` and `createAutoplaylist` report `guid`, and every method that acts on one playlist, including `library.addToPlaylist`, `queue.add`, `queue.addPaths` and `artwork.getByPlaylistItem`, accepts `playlistGuid`. A playlist that has been removed fails with `NOT_FOUND`.
+- Responses that report a playlist by index also include its `playlistGuid`, and the `playlist:*` events carry GUIDs (`playlistGuid`, `guid`, `newGuid`, `guids`).
+- `playlist.setActive` and `playlist.rename` accept `playlistGuid`, `playlist.reorderPlaylists` accepts `newOrderGuids`, and the entries of `queue.setContents` and `queue.insertNext` accept `playlistGuid`.
+- New `playlist.getMatchingRows` (rows that match a query) and `playlist.getTracksAt` (tracks by row number).
+- SDK: methods that take a playlist accept a `PlaylistRef` (index or GUID); `<fb-playlist-view>` and `<fb-playlist-tabs>` identify playlists by GUID.
+- Position readings include `hostTime` (Unix milliseconds, on the same clock as `Date.now()`) in `playback.getPosition`, `playback.setPosition`, `playback:seeked`, `playback:timeHighRes` and `playback:stateChanged`. The SDK adds `PlaybackClock` to estimate the position between updates.
+- `playback:stateChanged` includes `canSeek`.
+- Local media (experimental; may change in later releases): new `media.getStreamUrl` and `media.getContainerInfo`; the SDK adds `MediaElementFollower` and `canPlay`. See [Media API](/api/media) and [Local media](/sdk/media).
+- PCM (experimental; may change in later releases): new `audio.decodePcm` decodes a track, or a range of it, into float32 PCM, and new `audio.subscribeStream` subscribes to the audio foobar2000 is playing. Samples arrive through shared buffers, which the SDK reads with `PcmBuffer` and `PcmStream`.
+- `audio.subscribeSpectrum` accepts `output: 'bins'` to deliver raw FFT bins, split into `left` and `right` with `channels: 'stereo'`. The SDK callback receives `SpectrumBinsFrame`.
+- `metadata.write` and `metadata.writeBatch` write multivalue tags from a string array; an empty array removes the tag.
+- Track rows include `albumArtists`, which the `fields` of `library.query`, `library.search` and `playlist.getTracks` can select.
+- `lyrics.get` and `lyrics.exists` accept `filename` to specify the lyrics file.
+- New `webview.getSource` reports where the page was loaded from.
+- New `window.setMaximizeButtonRegion` gives a page-drawn maximize button Snap layouts on Windows 11.
+- `window:stateChanged` includes `windowId`.
+- `file.write`, `fb.file.writeBinary` and `fb.file.writeDataUrl` accept `atomic: true`, which cannot be combined with `append`.
+- New `tray.setMenuZones` replaces the whole tray menu in one call.
+- `dnd:enter`, `dnd:drop` and `dnd.getPathsAsync` include `source`, which distinguishes drags from the page itself (`'self'`), from another window of the same foobar2000 (`'other-window'`) and from elsewhere (`'external'`).
+- Portable installations now keep their WebView2 data under their own profile folder, so multiple instances can run at the same time. The first start copies the web data from the shared folder; if another foobar2000 is still using that folder, the instance starts with empty web storage and the console shows both folders. Settings saved with `config.set` are not affected.
+- The documentation site splits the API reference into one page per namespace and adds an SDK type reference, a getting-started tutorial and an example of computing a spectrum from the live PCM stream.
+
+### Changes
+
+- `library.getAlbums` and `library.getAlbumTracks` share one grouping of the library, so opening the same album again no longer scans the library.
+- `library.getAlbumTracks` results include the album's `row`, and tracks are sorted by disc number, track number and library order.
+- `library.addToPlaylist`, `playlist.addHandles` and `playlist.insertTracks` check their paths as media reads; if any path is denied, the whole call fails with `PERMISSION_DENIED`.
+- `newOrder` in `playlist.reorder` and `playlist.reorderPlaylists` fails with `INVALID_PARAMS` if it lists an entry twice.
+- Track event payloads include `artists` and `rating`, and every field is always present.
+- `audio:dspPresetChanged` and `playlist:defaultFormatChanged` deliver an empty object instead of `null`.
+- A query the parser rejects fails with `INVALID_PARAMS` and `details.param: 'query'` in `playlist.getMatchingRows`, `library.search` and `library.query`.
+- Paths longer than 259 characters fail with `OPERATION_FAILED` and `details.value` 206; `file.copyAsync`, `file.moveAsync` and `file.deleteAsync` report the reason `path-too-long`. See [Path length](/api/file#path-length).
+- `file.read` and `file.write` include the Windows error code in `details.value` when the file cannot be opened.
+- Lyrics `filename` values follow Windows file name rules: periods inside a name are allowed, and a trailing period or space is refused.
+- Saving lyrics invalidates cached reads.
+- Band spectrum output is kept for compatibility with unchanged values, and the documentation lists it as legacy.
+- When the host rejects an `fb2k.invoke` request itself, the `Error` carries a `code` property (such as `METHOD_NOT_FOUND` or `INTERNAL_ERROR`).
+- In the SDK, `library.getAll` resolves with `OPERATION_FAILED` on failure or timeout instead of rejecting; `playlist.getTracksPage` is deprecated, as `getTracks` returns the same page.
+- A `|subsong:N` suffix whose index cannot be read is dropped, and the path refers to the first track.
+- `audio.generateWaveform` is removed (every call used to fail as not implemented); use `audio.generateFullWaveform`.
+
+### Fixes
+
+- Fixed an issue where popups and panels did not receive `menu:select`, `menu:dismiss` and `menu:valueChanged`; these events now go to the page that opened the menu.
+- Fixed an issue where a popup or panel that started a JIT session did not receive `jitQueue:*` events, so playback stopped after the first track.
+- Fixed an issue where panel pages did not receive `http:response` and `http:downloadComplete`.
+- Fixed an issue where panel pages did not receive `app:beforeQuit` with Default UI or Columns UI as the interface.
+- Fixed an issue where several panels in the same foobar2000 window were identified as the same panel.
+- Fixed an issue where `window.getMode` reported `windowId` as `main` in popups.
+- Fixed an issue where `<fb-titlebar>` and `<fb-window-controls>` in a popup followed the main window's maximize state.
+- Fixed an issue where a popup stayed on the browser's error page when the development server could not be reached.
+- Fixed an issue where a URL with a user name or password could pass for a trusted origin.
+- Fixed an issue where `LYRICIST` tags were read as lyrics.
+- Fixed an issue where `playback.playPaths` played paths it reported as skipped.
+- Fixed an issue where `playlist:addComplete` counted tracks refused by a locked playlist in `addedCount`.
+- Fixed an issue where `playback:stateChanged` reported `playing` when playback started paused.
+- Fixed an issue where text that is not valid UTF-8, such as an internet radio stream title, stopped an event from being sent; invalid bytes are now replaced with U+FFFD.
+- Fixed an issue where `metadb:changed` omitted the playback statistics rating for tracks without metadata.
+- Fixed an issue where `queue.get` reported a wrong playlist position after rows or playlists were removed or moved.
+- Fixed an issue where `selection.getViewingTrack` reported the active playlist without a row for a selection made outside it.
+- Fixed an issue where `playlist.playTrack` with `deferred: true` played the wrong row if playlists were added or removed before playback started.
+- Fixed an issue where the SMP layer's `RemovePlaylistSelection` with `crop` cleared the whole playlist when the selection could not be read.
+- Fixed an issue where `discovery.executeContextMenuByPath`, the `titleformat.eval` methods and `replaygain.get`, `clear` and `scan` could not target tracks after the first in a multi-track file (`|subsong:N`).
+- Fixed an issue where failed rows of `playcount.get` and `getBatch` did not echo the requested path.
+- Fixed an issue where `taskbar.flash` reported failure when the main window was in the background.
+- Fixed an issue where ports opened by a page stayed open after the page reloaded or navigated away; they now close with `port:disconnected`.
+- Fixed an issue where `fb2k.on` returned `undefined`; it now returns a function that removes the listener.
+- Fixed an issue where a drag-out refused by the host also cancelled the drag inside the page.
+- Fixed an issue where a long drag from Explorer could leave the drag image stuck and pages unresponsive.
+- Fixed an issue where a file dropped where the page did not handle it opened in a separate window.
+
+## v1.14.0 (2026-10-06)
+
+::: warning Breaking changes in this release
+- `library.getArtistAlbums`, `getArtistTracks` and `getAlbumTracks` now match exactly: comparison is byte for byte and case-sensitive, and `*` and `?` are no longer treated as wildcards. To keep the previous substring match in `getArtistAlbums`, pass `match: 'substring'`.
+- The `artist` field of `library.getArtistAlbums` rows now reports the album artist (the first `album artist` value, or the first `artist` value when that tag is absent).
+- `library.getArtistAlbums` now sorts before applying `limit`, so a truncated result may contain different albums; `limit: 0` returns an empty list.
+- For queue entries without a playlist position, `queue.get` reports `playlist` and `playlistItem` as `null`; test `item.playlist == null`.
+:::
+
+### New features
+
+- Tracks can be dragged out of the window as real files: exchange paths for a one-time token with `dnd.prepareDrag`, then write it into the drag in `dragstart` (`fb.dnd.applyDragToken` in the SDK). `dataTransfer.effectAllowed` must be `'copy'`.
+- New `dnd:dragEnded` fires only when the host refuses to attach the files; subscribe with `fb.dnd.onDragEnded` in the SDK.
+- `dnd.getCapabilities` and `dnd:capabilitiesChanged` include `dragOut` and `dragOutUnavailableReason`; dragging out requires WebView2 Runtime 144 or later.
+- New `queue.setContents` replaces the playback queue with an ordered list.
+- New `queue.insertNext` queues tracks, given by path or playlist position, to play next; a track already queued is moved rather than queued twice.
+- New `queue.playNow` plays a queued item immediately.
+- `playback:queueChanged` includes `count`, and a rebuild of the queue is broadcast once.
+- New `playlist.getGroupRuns` returns the group boundaries of an entire playlist without its rows.
+- `playlist.getTracks` accepts `fields` to return only the specified fields; unknown names fail with `INVALID_PARAMS` and are listed in `details.unknownFields`.
+- `library.getArtistAlbums` accepts `sort` and `match`, and its response includes `artist`, `total` and `hasMore`. Its rows include the full set of album fields (`albumArtist`, `discCount`, `duration`, `genre`, `label`, `firstTrackPath`, `firstTrackAbsolutePath`), with counts covering only the artist's tracks.
+- `library.getArtists` accepts `includeAlbums`; when `true`, each artist includes its albums.
+- Lyrics files named `<artist> - <title>.lrc`, and shared `.lrc` files without the subsong number, are now found.
+- Spectrum adds `scale: 'db'`, `minFrequency` and `maxFrequency`, and the `fftSize` limit is raised to 65536. Each frame carries `subscriptionId`, the parameters in use, `streamTime` and `hostTime`.
+- `audio.getWaveform` accepts `channels` and `points`.
+- Full-track waveforms are no longer decoded again when `method`, `signed` or `scale` changes, and concurrent requests for one file share a single decode. The new `audio.cancelFullWaveform` cancels a pending task, and responses include `maxAmplitude`.
+- SDK: the function returned by `fb.audio.subscribeSpectrum` carries `ready`; `fb.audio.generateFullWaveform` accepts `signal`; new `playlist.getGroupRuns` and `playlist.getTracksPage`; `library.getArtistAlbums` accepts `options`.
+- `dialog.openFolder` accepts `defaultPath`, including `%music%`.
+- Rating, slider and segmented rows in self-drawn menus can be adjusted with the mouse wheel.
+- The preferences page (`Display → WebView2 UI`) is redesigned: changes are saved when `Apply` or `OK` is clicked, `Reset page` restores the defaults, and `Cancel` discards changes.
+- New Window, Performance and Developer pages provide settings for default zoom (50–200%), preloading WebView2 at startup and the CDP port (1024–65535, default 9222).
+- Templates are created, renamed and deleted under `Manage...`; these operations take effect immediately.
+
+### Changes
+
+- Background mode, deep suspend, developer tools, CDP remote debugging, and the development server switch and URL have moved from Advanced to the new pages, and existing values are carried over. Local network access over HTTP and invalid TLS certificates remain under `Advanced → Tools → WebView2 UI`.
+- Changing the component language is now written on `Apply`; dialogs opened afterwards use the new language.
+- The active template and templates referenced by a panel cannot be renamed or deleted, and an empty template list no longer creates `default` automatically.
+- Spectrum frames are pushed on time at each subscription's frame rate; on pause or stop one silent frame is sent before frames stop; out-of-range parameters fail with `INVALID_PARAMS`.
+- `duration` of `audio.getWaveform` must be within (0, 1] seconds, or the call fails with `INVALID_PARAMS`.
+- While hidden to the tray, `window.getState` reports `minimized: true`, and hiding sends one more `window:stateChanged`.
+- `Allow insecure HTTP connections (disable HSTS)` is marked as reserved and currently has no effect.
+
+### Fixes
+
+- Fixed an issue where lyrics and cover files in a track's folder could not be read, including in portable installations (#15).
+- Fixed an issue where tracks whose file names contain `..` were rejected as path traversal (#17); the `filename` of `lyrics.save` and `metadata.embedArtwork` and the `file` of `log.write` follow the same rule.
+- Fixed an issue where artists whose names contain a double quote returned no albums or tracks.
+- Fixed an issue where `library.getArtistAlbums` undercounted `trackCount` when truncated and omitted `albums` on failure.
+- Fixed an issue where `<fb-library-tree>` listed other artists' albums under an artist node.
+- Fixed an issue where spectrum subscriptions changed each other's `fftSize`, `bands` and `fps`.
+- Fixed an issue where foobar2000 could crash when generating a full-track waveform for a track with a very long path, and different tracks could share one waveform.
+- Fixed an issue where the area previously occupied by the window could not be clicked after hiding to the tray.
+- Fixed an issue where tracks added by native path (such as `E:\...`) did not match the same file in a playlist.
+- Fixed an issue where `playlist.addPathsSequential` did not preserve the given order.
+- Fixed an issue where `playlist.addPathsAsync`, `library.addToPlaylist` and `audio.analyzeBPM` ignored `path|subsong:N`.
+- Fixed an issue where a playlist row's `rating` could differ from `rating.get`; both now read foo_playcount first.
+
+### Known issues
+
+- 1.x does not fully check where a page comes from: an `http(s)` URL opened with `window.createPopup` is trusted outright, so the page can call every API, `shell.exec` included; in development mode, pages on any local port are trusted too; and events are pushed to whatever page is loaded, including one that has navigated to another origin. These issues are fixed in v2.0.0 and will not be fixed in 1.x. Do not open untrusted URLs in popups.
+- Tracks queued through the `paths` option of `queue.insertNext` carry no playlist position; after they finish, playback resumes from where it was before the insertion. When the track's playlist position is known, use `items` instead.
+- The playback queue is not kept across restarts; this is foobar2000's own behavior.
+
+## v1.13.0 (2026-08-26)
+
+::: warning Breaking changes in this release
+Four changes may require code edits:
+
+- **`library.search` no longer duplicates its row array as `items`.** The response used to carry the same rows twice, byte-identical, under `items` and `tracks`. It now sends only `tracks` — the key `library.query` has always used. Code reading `result.items` should read `result.tracks` instead; every response shape — on older hosts too — carries `tracks`, so a `tracks`-first reader keeps working against hosts that still send both. This halves the payload of every row-carrying search response.
+- **`dialog.confirm` resolves with `{ response }`, not `{ confirmed }`.** The declared type was wrong. The host has always returned the zero-based index of the clicked button in `buttons` and never a `confirmed` flag, so TypeScript code reading `result.confirmed` was reading a field that was never populated. With the default button set `['OK', 'Cancel']`, `0` means confirmed and `1` means cancelled. The task dialog is created without `TDF_ALLOW_DIALOG_CANCELLATION`, so Escape and the close button do not dismiss it and every result comes from an actual button click; `-1` appears only on the host's fallback path, when even a plain message box could not be shown.
+- **`file.*` error messages changed, and a rejected path is no longer echoed back.** Every hand-rolled error envelope in the namespace now goes through the standard error envelope, and a `std::filesystem` exception surfaces only its Win32 error number — the exception text and the offending path no longer reach the payload or the host log. A path-security refusal now reads `file.read: path security denied for 'path': Access denied: protected system path`: it names the method, the parameter (with its index for array parameters, as in `items[2].destination`) and the policy reason, so a caller can tell which argument was refused without the host leaking a filesystem location into a payload a page may forward elsewhere. Code that parsed `result.error` for a path or for specific wording has to switch to `result.code` plus `result.details`.
+- **A parameter of the wrong shape now returns `INVALID_PARAMS`, not `PERMISSION_DENIED`.** The path-security decorator previously reported a refused path and a malformed argument under the same code. A handler that branched on `PERMISSION_DENIED` to catch type errors will stop seeing them there.
+
+:::
+
+### Asynchronous file operations
+
+- **New: `file.copyAsync`, `file.moveAsync`, `file.deleteAsync` and `file.cancelOp`.** The work runs on a host worker thread, so copying a large album no longer freezes the UI the way the synchronous `file.copy` does. Each call returns a `{ operationId, totalCount }` receipt immediately; the outcome arrives on `file:opProgress` and is followed by one `file:opComplete`.
+- New events `file:opProgress` and `file:opComplete` (payload: `operationId`, `op`, `done`, `total`, `results` / the three counts and `cancelled`). Results are batched, never one event per entry: they accumulate until 64 are pending or 100 ms have passed since the previous batch, so a fast run collapses to roughly `ceil(total / 64)` events while a slow one keeps a progress signal moving. `done / total` is a usable progress fraction, and the final partial batch always arrives before `file:opComplete`.
+- One result is reported per requested entry, never per file: a directory entry is reported once its whole tree has been walked. Each result echoes `source` (and `destination`, except for `deleteAsync`) exactly as requested, `%variable%` placeholders included and unexpanded, so it works as a lookup key. `status` is `'ok'` / `'skipped'` / `'failed'`, with `reason` drawn from `already-exists`, `not-found`, `permission`, `cross-volume`, `io-error` and `cancelled`.
+- **Path validation is all-or-nothing.** If any entry fails the host's read or write check the whole call is rejected with `PERMISSION_DENIED` and no `operationId` is produced — a partial batch is never dispatched. `copyAsync` checks `source` as `Read` and `destination` as `FileWrite`; `moveAsync` checks both ends as `FileWrite` because a move deletes the source; `deleteAsync` checks every path as `FileWrite`. At most 8 operations may be in flight process-wide.
+- Copy and move differ on an existing destination: `copyAsync` merges a directory into an existing directory (files already there are skipped without being reported individually, and the entry still reports `status: 'ok'`), while `moveAsync` reports it as `skipped` / `already-exists`. `overwrite` (default `false`) covers file destinations only — Windows cannot swap a directory in place, so an existing directory destination is never replaced. Note that the synchronous `file.move` always replaces a file destination; the async form does not unless asked.
+- Within one volume a move is a rename and costs nothing regardless of size. Across volumes the host falls back to copy-then-delete-source; the entry still reports `status: 'ok'` but carries `reason: 'cross-volume'` so the extra cost is visible.
+- `deleteAsync` defaults to `moveToTrash: true`, which hands each path to the shell and therefore needs the main thread — those deletes run there in batches of 16 and yield in between. `moveToTrash: false` deletes on a worker thread and removes non-empty directories, which the synchronous `file.delete` refuses to do in that mode.
+- `file.cancelOp` takes effect part-way through a batch rather than at the end of it: a copy or move stops within one file, aborting the file in flight and removing its partial copy, and a delete stops at the next entry. Entries already done keep their results, every remaining entry is reported as `skipped` / `cancelled`, and the run still ends with a `file:opComplete` carrying `cancelled: true`. Closing a popup cancels the operations that popup started; a panel host has no such hook, so its operations run to the end unless cancelled explicitly. `cancelled: false` comes back when the operation had already finished or never existed — the two cases are deliberately indistinguishable.
+- Both events go to the window that made the call while that window is alive, which is what makes it safe for `results` to carry real filesystem paths. Once the window is gone the host can no longer resolve it and falls back to the main instance, so a late event may surface in a window that did not start the operation. Two paths skip `file:opComplete` — the host shutting down mid-run, and an unexpected host-side failure — so a listener that must not leak state should carry its own timeout rather than wait on it forever.
+
+### Metadata probing
+
+- **New: `metadata.probeBatchAsync` and `metadata.cancelProbe`.** Reads happen on a host worker thread, so a few hundred paths no longer stall the UI the way `metadata.readBatch` does. The call returns a `{ operationId, totalCount }` receipt; results arrive on `metadata:probeProgress` and are followed by exactly one `metadata:probeComplete`.
+- Each result reports where its info came from — `infoSource: 'cached' | 'direct'` — which is what makes the endpoint useful for files the media library has never seen. On failure it reports which of `'not-found'` / `'unsupported-format'` / `'read-error'` applies, a distinction `readBatch` collapses into one generic error string. `includeTags` (default `true`) attaches the flat tag map, with upstream keys upper-cased as in `readBatch`; pass `false` when only technical info is wanted.
+- Paths may carry a `|subsong:N` suffix, are resolved independently and are echoed back verbatim so they work as lookup keys. Unlike `metadata.read`, the batch surface does not honour the legacy `#N` subsong spelling, which would mis-split an extensionless filename that happens to end in `#<digits>`.
+- Path validation is all-or-nothing: if any path fails the host's media read check the whole call is rejected with `PERMISSION_DENIED` and no `operationId` is produced. Per-path rejection is not available.
+- `metadata:probeProgress` batches on the same 64-or-100 ms rule as the file events. `metadata:probeComplete` always arrives, on the cancelled and failed paths too. Cancellation interrupts the in-progress disk read rather than waiting for it; paths not yet reached are never reported and the interrupted path is reported as neither success nor failure, so `successCount + failureCount` falls short of `total` on a cancelled run.
+
+### Drag and drop
+
+- **A dropped shortcut now tells you what it points at.** Windows puts the `.lnk` file itself in a dropped file list, which foobar2000 cannot play, so every path source is now joined by a parallel array of shortcut targets: `resolvedPaths` on the `dnd:enter` / `dnd:drop` payloads and on `dnd.getPathsAsync()`, plus the new `dnd.getResolvedPaths()` for the synchronous snapshot. The two arrays are always the same length, so `paths.map((p, i) => targets[i] ?? p)` gives a playable list.
+- An entry is `null` whenever no target is available: the path is not a shortcut, the shortcut names a shell namespace object such as the recycle bin rather than a file, the recorded target is too long to come back intact (Windows caps it at `MAX_PATH`, and a truncated path would name a different file), COM was unavailable, or resolution was skipped to keep the drop responsive. Never an empty string, so a truthiness test is enough.
+- A target says where the shortcut points, not that the file is there. A broken shortcut reports the path its `.lnk` recorded rather than `null`, because Windows hands that path back whether or not the target still exists and the host cannot afford a filesystem check on the thread the drag blocks. Expect a non-null entry to occasionally name nothing. Only `.lnk` is resolved — `.url`, `.library-ms` and virtual search results report `null`.
+- Reading `resolvedPaths` costs no filesystem access: the targets were resolved once when the drag arrived, so `getPathsAsync()` reads host memory only.
+- **A known limitation** — the page-side snapshot is published to the top-level document only, so `dnd.getPaths()` and `dnd.getResolvedPaths()` answer with an empty array inside an `<iframe>` and the slot stays `null` for the life of that document. A framed page that needs paths has to receive them from the main frame over `postMessage`.
+- Dragging tracks **out** of the window is still unsupported and `dnd.startDrag` keeps resolving `{ success: false, code: 'NOT_SUPPORTED' }`.
+
+### Media library queries
+
+- **Multi-value tags are no longer truncated to their first value.** Since the first release, a track tagged with several artists reported only the first one everywhere outside `metadata.read`. Track objects now join the values with `, ` in tag order, without de-duplication — matching what foobar2000 itself displays — for `artist`, `albumArtist`, `genre` and `composer`, each API keeping its own field set.
+- **New: `artists`, the atomic form of `artist`.** A joined string cannot tell one artist named `"A, B"` from two artists `A` and `B`, so track objects from the library namespace — `library.getAll`, `library.query`, `library.search`, `library.getByPath` and the other `library.*` track endpoints — also carry `artists: string[]` with the untouched values; `artists.join(', ') === artist` holds byte for byte. Track objects from other namespaces (`playlist.getTracks`, `playback.getCurrentTrack`, `queue.get`, artwork and event payloads) do not carry the field.
+- **Aggregation counts every credited artist.** `library.getArtists` gives each participating artist its own entry, which makes `trackCount` a participation count: the entries add up to more than the number of tracks, and `albumCount` / `totalDuration` are counted per artist the same way. `library.getStats`'s `totalArtists` now matches the entry count of `getArtists`, and `library.getGenres` treats each value of a multi-value `genre` as its own entry.
+- **New: field projection on `library.search` and `library.query`.** `library.search` accepts `options.fields` and `library.query` gained a fourth `fields` argument. Every returned row then holds exactly the requested keys and nothing else, so `TrackInfo` is a partial view at runtime while the declared type stays complete. Accepted names are the 20 track keys — `index`, `title`, `artist`, `artists`, `album`, `albumArtist`, `genre`, `date`, `trackNumber`, `discNumber`, `duration`, `path`, `absolutePath`, `fileSize`, `bitrate`, `sampleRate`, `channels`, `codec`, `subsong`, `rating` — matched case-sensitively. Omit the argument to get all 20. A non-array, an empty array, a non-string element or an unknown name resolves (never rejects) with `{ success: false, code: 'INVALID_PARAMS' }` and echoes the offending names under `details.unknownFields`.
+- **`library.search` and `library.query` now serialize off the main thread** and write their result straight to the wire instead of building an intermediate object graph. The response pipeline stops deep-copying along the way, and a query with no hits short-circuits. Aside from the `items` removal listed under breaking changes, the JavaScript contract is unchanged: both still resolve the same shape from the same promise.
+- **The Spider Monkey Panel compatibility layer stops re-scanning the library once per page.** `fb.GetQueryItems` used to page through hits 500 at a time, and because `library.search` re-scans the whole library on every request, a multi-thousand-hit query paid one full scan per page — 160 scans on a large library. It now issues a one-row probe for the hit count followed by a single request for every hit, narrowed to the five keys `FbMetadbHandle` actually reads. No observable handle property changes. Trade-off: the probed count is stale if the library changes between the two calls, so hits added in between are dropped; the returned set is not guaranteed stable while the library is being modified concurrently.
+- **Practical note on very large libraries.** These changes remove copies and payload, not the cost of producing the rows. A full-field whole-library query still occupies the host's main thread for a substantial time on a six-figure library, dominated by the size of the response being handed to the page. Narrow the projection with `fields` when you do not need all 20 keys — it is the single most effective lever available today. On 32-bit hosts also keep the peak in mind: a full-field whole-library result is held in several forms at once while it is parsed, so a six-figure library can reach hundreds of megabytes momentarily.
+
+### Title formatting
+
+- **`titleformat.eval`, `evalBatch`, `evalFields` and `evalFieldsBatch` now report `infoAvailable`.** The host knew whether a track's metadb info was ready and was throwing that signal away, so tag-derived output could come back silently wrong. `infoAvailable: false` means tag-derived values are untrustworthy. Batch variants carry the flag per row, and rows that failed omit it.
+- Two limits worth knowing: one flag covers the whole merged script in the `evalFields` forms, so it cannot tell you which individual field was affected, and it never covers foo_playcount virtual fields. A `fields` key literally named `infoAvailable` overwrites the flag, matching the existing behavior of `path` and `success`.
+
+### Errors and permissions
+
+- **`fb2k.invoke` inside a subframe now fails immediately.** It rejects with an `Error` carrying `code: 'NOT_SUPPORTED'` and the message `fb2k.invoke is unavailable in subframes`, instead of hanging silently until the 30-second timeout. A detached call (`const { invoke } = fb2k`) still surfaces its `TypeError` as a rejection rather than a synchronous throw.
+- A cross-volume **directory** move now returns `NOT_SUPPORTED` with `details.reason: 'cross-volume'` rather than a generic failure. A cross-volume *file* move already succeeded, because the underlying rename silently degrades to a copy.
+- Path allowlist and blacklist entries are now normalized to the same canonical real-path form the check side uses. An entry written in a different but equivalent spelling — a mapped drive, a junction, a short 8.3 name — previously failed to match the path it was meant to cover.
+- Dropping a shortcut, probing metadata and the async file operations are all covered by the permission matrix in the reference; the counts there moved from 67 specs over 64 APIs to 73 over 68.
+
+::: danger FileWrite now accepts media-library watch folders
+The `FileWrite` chain — the channel behind every `file.*` write — gained a media-library watch-folder step, so a path inside a watch folder is now writable **even on the system drive**, where previously only the non-system-drive step would have allowed it. `FileWrite` was already the widest write channel exposed to a theme; this widens it further. If you audit themes, this is the channel to look at first, and the watch-folder list is now part of its attack surface.
+:::
+
+### Window and menus
+
+- **Collapsing a menu no longer leaves an invisible click trap.** The WebView rendering area is now shrunk in the same step as the menu closing, so no residual transparent region is left behind intercepting clicks meant for the page underneath.
+
+### SDK
+
+- New exported types for the async file surface: `FileOpEntry`, `FileOpAsyncOptions`, `FileDeleteAsyncOptions`, plus payload types for the four new events (`FileOpProgressPayload`, `FileOpCompletePayload`, `MetadataProbeProgressPayload`, `MetadataProbeCompletePayload`) and their supporting unions (`FileOpKind`, `FileOpStatus`, `FileOpResultReason`, `MetadataProbeFailure`, `MetadataProbeInfoSource`).
+- `dialog.openFile`, `saveFile` and `openFolder` now document their resolve shapes (`{ canceled, filePaths }` / `{ canceled, filePath }` / `{ canceled, folderPath }`), where the path field is empty on cancellation.
+- `dnd.getPathsAsync` is typed against the shared session-paths shape so `resolvedPaths` is visible to TypeScript. `dnd.getResolvedPaths()` pads from `paths`, so a host that predates the field yields nulls of the right length rather than a short array that would silently misalign an index-paired loop.
+
+### Documentation
+
+- Every parameter table in the bilingual API reference now carries a Default column, and filler prose that restated the parameter name has been removed throughout.
+- Required-column entries were verified one by one against the C++ handlers' null checks, correcting roughly 50 mismarked parameters across both languages.
+- `library.coverMaxSize` is documented in KB, not bytes. Three broken `library` return-field tables were rebuilt against the actual host structures. Twelve findings from an adversarial documentation audit were applied, including two reversed semantics and several misleading descriptions.
+
+## v1.12.0 (2026-08-13)
+
+::: warning Breaking changes in this release
+Four changes may require code edits:
+
+- **The `dnd` drop-zone registry is gone.** `dnd.registerDropZone` / `unregisterDropZone` / `getDropZones` no longer exist; the host now observes drags natively and emits `dnd:enter` / `dnd:leave` / `dnd:drop` to the window under the cursor, no registration required. Read real paths with `fb.dnd.getPathsAsync()` or from the `dnd:drop` payload.
+- **`dnd.startDrag` no longer fakes success.** Dragging tracks out of the window needs a native `IDropSource` the component does not provide; the call now resolves with `{ success: false, code: 'NOT_SUPPORTED' }` instead of reporting `success: true`.
+- **Window size constraints target the calling window.** The six `window.setMinSize` / `getMinSize` / `setMaxSize` / `getMaxSize` / `setResizable` / `isResizable` endpoints no longer fall back to the main window, and a call that resolves no target now fails. A popup that relied on the old fallback was constraining the main window.
+- **`DiscoveryContextMenuCommand` is no longer a type alias.** Reading `path` / `isDynamic` / `subGuid` off a context-menu command no longer type-checks — those fields were never populated.
+
+:::
+
+### Drag and drop
+
+- **Drag and drop is now a native pipeline.** The host observes drag gestures itself through a native `IDropTarget` bridge and hands the page what HTML5 deliberately hides: real filesystem paths. Standard HTML5 drag events keep firing as before; `fb.dnd` runs alongside them as a side channel.
+- New surface: `dnd.getPathsAsync(sessionId?)` (the reliable read inside a `drop` handler), `dnd.getPaths()` / `dnd.hasFiles()` (synchronous snapshot reads for optimistic UI), and `dnd.getCapabilities()` (whether this window can deliver paths at all).
+- Events `dnd:enter` / `dnd:leave` / `dnd:drop` (payload: `sessionId`, `paths`, `x`, `y`, `keyState`) and `dnd:capabilitiesChanged`, correlated by `sessionId` and delivered point-to-point to the window under the cursor.
+- Paths are withheld from untrusted origins while `hasFiles` stays accurate; a DUI / CUI panel (`hosting: 'standard'`) cannot receive paths — branch on `getCapabilities()` rather than assuming from the window type.
+- **Migration**: delete `registerDropZone` / `unregisterDropZone` / `getDropZones` calls and any `zoneId` bookkeeping; keep (or add) plain HTML5 `dragover` / `drop` listeners for visuals and hit-testing; read real paths with `await fb.dnd.getPathsAsync()` inside the `drop` handler; gate path-dependent UI on `dnd.getCapabilities()`.
+
+### Main menu
+
+- **`menu.runMainMenuCommand` no longer leaks host exceptions.** On localized foobar2000 builds a host exception previously escaped to JavaScript as a raw host-language `Error` and made the name and path forms fail outright. Failures are now reported as `success: false` with a `code`: `MENU_ITEM_DISABLED`, `MENU_MATCH_AMBIGUOUS` (with `candidates`), or `MENU_COMMAND_NOT_FOUND`.
+- **`menu.getMainMenu` leaves are addressable on localized hosts.** Leaves are now matched against the same text the host rendered the menu from and backfilled with `guid` / `subGuid`; measured 0 of 158 leaves before, 131 of 167 after on a localized host. `flags`, `enabled`, `checked`, and `hidden` are now reported as well, where previously none of them were.
+- **Behavior change** — a disabled command is refused instead of reporting success. Execution previously returned `success: true` for a greyed-out command, and the same command was refused by name yet "succeeded" by GUID. All three request forms now validate alike and return `MENU_ITEM_DISABLED`. A GUID absent from the enumeration is still attempted, because a caller may hold a valid address the enumeration did not surface.
+- Name and path resolution matches by exact segment. An ambiguous name is reported rather than resolved: on a localized host three separate commands can share one label, so picking the first match would silently run the wrong command. Address by `guid` to be unambiguous — it is the only form stable across hosts, since a localized build reports localized labels.
+- `menu.runMainMenuCommand` accepts `subGuid` to address a dynamic child command, paired with its owning command GUID.
+- A leaf that could not be resolved to an address now says so, carrying `executable: false` and `unaddressableReason` rather than appearing as an ordinary command the caller cannot act on. `available` on flat enumeration results is read from live host state instead of being always `true`, so a disabled command is no longer indistinguishable from an enabled one.
+
+### Self-drawn menu
+
+- **Per-call presentation options.** `menu.show` / `menu.popup` take a third `MenuPopupOptions` argument, and keys the caller omits are not sent, so the host keeps its own defaults: `windowModel` (`'fullscreen'` default, or `'contentSized'` — draws the root and its first-level submenu as separate compact windows measured to their content, so each panel carries the real DWM backdrop material and the system window shadow; the recommended model for a context menu), `css` (at most 256 KiB) / `cssReplace` for style takeover, `backdrop` (`'acrylic'` default, `'mica'`, `'mica-alt'`, `'none'`) with `backdropDarkMode` (default `true`), and `closeAnimationMs` (default `0`, clamped to `0..1000`) for an exit fade.
+- **Rich items.** `MenuPopupItem.type` gains `'nowplaying'`, `'rating'`, `'slider'`, and `'segmented'` along with the fields they use (`value`, `min` / `max` / `orientation`, `segments`, and `cover` / `title` / `subtitle`), plus `iconSvg` for an inline monochrome icon on any row. Icons go through the runtime's allowlist sanitizer; an illegal or oversized one is dropped without failing the row.
+- **New event `menu:valueChanged`** reports a rating, slider, or segmented change as `{ menuId, itemId, value }` and keeps the menu open, while ordinary rows still report through `menu:select` and close it. Because `menu.popup` resolves only on selection or dismissal, subscribe to this event separately when a menu contains value controls.
+- **Fixed** — focus-loss dismissal is now reliable, and pooled submenu windows no longer show blank content in the `contentSized` model.
+
+### Discovery menus
+
+- **Behavior change** — `discovery.searchCommands` now searches the context menu as well as the main menu, so result counts increase and `type` carries a new `'contextmenu'` value. Pass `{ scope: 'mainmenu' }` for the previous coverage. The endpoint previously reported `type: 'mainmenu'` on every hit while only ever looking at the main menu, which made right-click commands unfindable.
+- **Behavior change** — `discovery.searchCommands` filters entries the host would not show, matching the enumeration endpoints. Pass `{ includeHidden: true }` for the unfiltered superset.
+- **Behavior change** — `discovery.getAllServices` counts context-menu commands in `services.contextMenuCommands` and includes them in `totalServices`, so `totalServices` changes value. `contextMenuHiddenFiltered` reports how many entries the filtering removed, and `stateKnown` is false when nothing was selected or playing.
+- Search hits carry the same state fields as the enumeration endpoints (`enabled`, `checked`, `radioChecked`, `hidden`, `stateKnown`, `flags`, `source`, `executable`, `unaddressableReason`), so a caller can tell whether a hit is invocable without a second round trip. When the context family was searched without a track selected or playing, the response's `stateKnown` is false and those hits' `enabled` / `checked` must not be filtered on.
+- Search case folding is now ASCII-only and can no longer corrupt a UTF-8 sequence. Observable matching behavior for CJK labels is unchanged — they have no case to fold.
+- **`discovery.getContextMenuTree` no longer truncates silently.** Children were previously capped at 50 and depth at 10 while still reporting the host's real `childCount`, so `children.length` disagreed with `childCount` with nothing explaining the difference. The limits are now depth 16 and 512 children per node, and any clipping is reported: a `popup` node gives both `childCount` and `childrenReturned`, and a node whose subtree was clipped carries `truncated` with `depthExceeded` / `childrenExceeded` naming the cause. The flags propagate upward, so the response's top-level `truncated` covers the whole tree; `maxDepth` and `maxChildrenPerNode` echo the applied limits.
+- `discovery.getContextMenuTree` nodes now report state — `enabled`, `checked`, `radioChecked`, `hidden`, `stateKnown`, `flags` — and `depth`. Separators carry only their kind, which is all that is meaningful for them.
+- `discovery.executeContextMenuCommand` returns `hidden` and `resolved` on the success path, not only when refusing, so a caller can tell "was not refused" apart from "this build does not report the field". `resolved` is false when no registered item owns the GUID, in which case there was no state to evaluate.
+- `discovery.getMainMenuCommands` entries expanded from a dynamic submenu now carry `stateKnown`, `executable`, and `unaddressableReason`, matching the static slots.
+
+### SDK
+
+- **Breaking type fix** — `DiscoveryContextMenuCommand` was a type alias for `DiscoveryMainMenuCommand` and therefore claimed fields the context tier never returns. It is now an independent interface: context items are registered flat and placed by the host, so they have no menu `path` and no dynamic-expansion fields. TypeScript code that read `path` / `isDynamic` / `subGuid` off a context-menu command was reading a field that was never populated.
+- Added the exported `MenuNodeState`, `MenuNodeSource`, and `MenuUnaddressableReason` types, shared by every menu enumeration result.
+- `fb.discovery.searchCommands()` accepts `{ scope, includeHidden }`; `fb.discovery.getContextMenuCommands()` accepts `{ includeHidden }`.
+- Fixed SMP main-menu dispatch. A menu id was previously resolved by `path` before `guid`, and path matching fails outright on localized hosts, so `ExecuteByID` on a main menu did not work there at all. `guid` is now preferred (the host resolves it directly); `commandId` still wins for context-menu sessions.
+- Fixed SMP menu state decoding. `enabled` / `checked` were previously re-derived from the raw `flags` word, ignoring the normalized booleans the host sends. Those booleans are now preferred, with `flags` used only when they are absent. An item marked `stateKnown: false` is offered as enabled rather than greyed out, because "state unknown" and "enabled, unchecked" are indistinguishable in `flags`, and treating unobserved state as disabled hid commands the host would have run.
+
+### Tray and menus
+
+- **Fixed** — the tray menu's "show main window" path no longer depends on the main page. Once the window was minimized or hidden to the tray, the page was deep-suspended, so no `tray:menuItemClicked` handler could run and nothing could call `window.focus` to bring the window back. A left click on the icon was equally silent. Native items (`_sys_exit`, `playbackAction`) kept working throughout.
+- **Behavior change** — `showSystemItems` (default `true`) now injects `_sys_show` ("Show Main Window") before `_sys_exit` in the bottom zone. It restores and foregrounds the main window natively, preserving its maximized / normal placement, and like every native item it does **not** fire `tray:menuItemClicked`. Menus built with `showSystemItems: true` therefore gain one row; pass `showSystemItems: false` to opt out.
+- `_sys_show` joins `_sys_exit` in the exact, case-sensitive reserved-id allowlist, so a frontend that renders its own "show main window" row gets the same native route with its `label` / `icon` preserved, and the injection is skipped for it. Lookalikes such as `_sys_show_alt` or `_SYS_SHOW` remain ordinary user items and do not suppress the injection. `playbackAction` still rejects `'show-main-window'` and `'exit'`: system routes stay exclusive to the reserved ids.
+
+### Window
+
+- **Behavior change** — the six size-constraint endpoints (`window.setMinSize` / `getMinSize` / `setMaxSize` / `getMaxSize` / `setResizable` / `isResizable`) now target the calling window, or an explicit `windowId`, and no longer fall back to the main window. A popup that set its own minimum size previously constrained the main window instead. When no target resolves the call fails rather than reporting another window's constraint. DUI / CUI panel callers are refused with `panelMode: true`.
+- **Documentation fix** — sizes on these endpoints are physical pixels, not DIP as previously documented. A caller that scaled by the device pixel ratio was applying the factor twice on a high-DPI display. A value round-tripped through a setter and getter is accurate to ±1px.
+
+### Interface language
+
+- The plugin's native UI now follows foobar2000's presentation language instead of the Windows UI language, so a localized foobar2000 no longer shows an English preferences page. The language is detected from the host's own strings and falls back to the Windows UI language when detection is not possible.
+- Added the *Interface Language* preference: *Auto (follow foobar2000)* (default), *English*, or *中文*. Newly opened dialogs apply the change immediately; menu titles and panel descriptions are registered with the host once and need a foobar2000 restart to refresh.
+
+### Playlists
+
+- **Playlist files from third-party components now expand correctly.** Adding a playlist URL or file through the API used a hardcoded list of eight wrapper extensions (`.pls` / `.m3u` / `.m3u8` / `.asx` / `.wpl` / `.xspf` / `.fpl` / `.cue`); a playlist format registered by another installed component was treated as a single track. The host's playlist-loader registry is now consulted at runtime, so any format the host can load is expanded.
+
+### Performance and stability
+
+- **Fixed** — the window no longer stays blank after the WebView2 *browser* process dies. Only the render process had a recovery path, so an external cause such as a third-party hook injected into the browser process left the window blank with no way to recover; one observed session ran that way for ten hours. The window is now rebuilt, capped at 3 rebuilds within a 10-minute window so a reproducible crash cannot degenerate into a rebuild→crash→rebuild loop. The window expires and the count resets, so an unrelated later failure is still recovered. This is separate from the v1.11.0 render-process handling, which reloads the page and rebuilds the WebView.
+
+## v1.11.0 (2026-07-27)
+
+### Tray and menus
+
+- Added `TrayMenuItem.playbackAction` (`'play-pause' | 'previous' | 'next' | 'stop'`) so a custom tray item can declare a playback action the plugin runs natively. Appearance stays caller-controlled; declared items do **not** emit `tray:menuItemClicked` (same pattern as Electron `role` / Tauri `PredefinedMenuItem`). Valid only on a `type:'normal'` leaf; unknown tokens or declarations on separator / submenu / rich controls reject the whole `setContextMenu` / `appendMenuItems` call with `INVALID_PARAMS`. `'exit'` is not accepted. Tray-only — no effect on `menu.show`. `getMenuItems` round-trips the field. Prefer this (or built-in `showPlaybackControls`) for background-reliable tray playback while the main page is hidden; plain click→`playback.*` handlers are not guaranteed then. Available from v1.11.0; probe `config.getVersionInfo().plugin.version` if you must support older hosts.
+- Clarified that `tray:menuItemClicked` covers ordinary user items and rich value controls only. Built-in playback / system injections and items declaring `playbackAction` execute natively without the click event; reflect button state from `playback:*`.
+- `menu.getMainMenu` accepts `locale`, `i18n`, and `withAvailability`. `locale` (default `'auto'`) selects the `displayLabel` translation locale and keeps the host's native labels untranslated by default; `i18n: false` disables label translation entirely; `withAvailability` (default `true`) includes per-submenu command availability counters. The SDK signature is now `getMainMenu(root?, opts?)`.
+- Fixed UTF-8 serialization and context-mode selection for custom menus.
+
+### DSP and output
+
+- **`dsp.*` and `output.*` now actually work.** The eleven handlers (`dsp.getChain` / `getPresets` / `getAvailable` / `addDsp` / `removeDsp` / `moveDsp` / `applyPreset` / `setChain`, `output.getDevices` / `getEntries` / `getSettings`) were documented but their source files had never been added to the build, so every call failed as an unregistered method. They are compiled and registered from this release on. The published `fb.dsp.*` and `fb.output.*` SDK wrappers were already shipping and start working against this plugin version; older plugins reject them regardless of SDK version.
+- Fixed a crash in `output.getDevices`. Some output backends report a device name with a "length unknown" sentinel instead of a real length; the handler used that value verbatim and read far past the end of the string, terminating foobar2000.
+- Fixed `dsp.moveDsp` moving items to the wrong slot. Upward moves landed one position short, so moving an item up by one did nothing and no item could reach the end of the chain. Downward moves were already correct. The returned `to` now reports the real final index.
+- **Behavior change** — `dsp.setChain` rejects a call that contains any unusable entry instead of silently skipping it. Previously a chain built from three entries could apply only two and still report `success: true`. Each per-entry failure now returns an index-tagged reason: `dsps[0] must be an object` (also for a non-object element such as a bare string or number), `dsps[0]: guid is required` (missing, empty, or not a string), `dsps[0]: Invalid GUID format: …`, or `dsps[0]: DSP not found or no default preset: …` (a well-formed GUID for a DSP that is not installed). A missing or non-array `dsps` still fails with `dsps array is required`. The chain is left untouched whenever a call is rejected.
+- `dsp.getPresets` reports `selectedIndex: -1` when no preset is selected. It previously returned the internal sentinel `18446744073709551615`, which is not representable as a JavaScript number and arrived as an unusable float.
+- `dsp.getChain` always includes `activePreset` and `activePresetIndex`, using `null` / `-1` when no preset is selected or the host does not support presets. The keys were previously absent in those cases, so callers had to probe for them.
+
+### Discovery
+
+- **Behavior change** — `discovery.getMainMenuCommands` and `discovery.searchCommands` now expand components that build their submenu at runtime (`mainmenu_commands_v2`, e.g. ESLyric), so results include child commands in addition to the parent slot. Pass `{ expandDynamic: false }` for the previous static-registry-only result.
+- New entry fields: `path`, `isDynamic`, `isDynamicParent`, `subGuid`, and `flags`. `getMainMenuCommands` echoes `expandDynamic` and `dynamicCount`, and `discovery.getAllServices` adds `mainMenuDynamicCommands`. An entry flagged `isDynamicParent` is a container slot and is not executable on its own.
+- `discovery.executeMainMenuCommand` accepts an optional `subGuid` for commands expanded from a dynamic submenu; without it only the static command GUID is dispatched. The response echoes `subGuid` and `dynamic`.
+
+### Performance and stability
+
+- **Behavior change** — while the page is hidden (minimized, covered, tray-hidden, or locked), high-rate regenerable streams stop at the source: `audio:spectrum`, `playback:time`, and `playback:timeHighRes` are not produced, and resume on the next tick once the page is visible again. `window:hoverStateChanged` and `cursor:hiddenChanged` are naturally silent while hidden. Every other event is delivered reliably and in order — nothing is dropped or merged — including async replies such as `http:response`, `library:getAllResult`, and `audio:fullWaveformReady`, and one-off facts such as `playback:itemPlayed`. Themes that draw a spectrum or a seek position should read a gap as "page hidden", not as "playback stopped".
+- Added deep suspend while minimized, covered, locked, or tray-hidden: renderer timers and animations are frozen so the OS can reclaim memory. Controlled by the new advanced-preferences option *Deep-suspend WebView when hidden (TrySuspend; frees renderer memory)* (default on; turning it off falls back to the previous low-memory path).
+- Added the advanced-preferences option *Keep WebView active in background while CDP remote debugging is on (tray/minimize/lock)* (default on), so screenshot and timing automation over the DevTools Protocol stays stable instead of being suspended.
+- Hardened recovery after a WebView2 crash: a failed render process no longer leaves an unresponsive blank window. The page is reloaded up to a bounded number of attempts and the WebView is rebuilt after repeated failures.
+- Improved album-art delivery: fixed cache entries that could serve another track's image, tightened request and parameter validation, and moved image decoding off the interface thread so large covers no longer make the window unresponsive. `artwork.*` request and response shapes are unchanged.
+
+### Metadata
+
+- Fixed `metadata.read`, `metadata.readByPath`, and `metadata.readBatch` ignoring the track index inside a container. A `|subsong:N` suffix was neither stripped nor honored, so reading a single track out of a CUE sheet, ISO image, or multi-track file either failed outright or returned the first track's tags. This is why such files could be read in the foobar2000 UI but not through the API. `metadata.readRaw` was already correct.
+- `metadata.read` and `metadata.readByPath` accept `cueIndex` to address a track explicitly, matching `metadata.readRaw`. It takes precedence over a `|subsong:N` suffix in the path. The `fb.metadata.read()` / `readByPath()` wrappers take it as a second `opts` argument, and the `fb2k_metadata_read` / `fb2k_metadata_read_by_path` MCP tools declare it. `metadata.readBatch` does not accept it — address per-track reads there with a `|subsong:N` suffix.
+
+### SDK
+
+- Added SDK-only additive binary adapters: `fb.file.readBinary()`, `fb.file.writeBinary()`, `fb.file.writeDataUrl()`, `fb.metadata.embedArtworkBytes()`, and `fb.metadata.embedArtworkFromDataUrl()`, plus `FileBinaryWriteOptions` and `MetadataArtworkBytesOptions`.
+- These helpers adapt `ArrayBuffer` / `Uint8Array` values and strict Base64 Data URLs to the existing `file.read`, `file.write`, and `metadata.embedArtwork` wire contracts. They add no new Bridge endpoints and do not change raw `invoke` or existing facades. Canonical Base64 and Data URL validation occurs in the SDK before invocation; Host validation and behavior are unchanged.
+- **Breaking type fix** — the published response types for `ui.isMinimized()` and `ui.isAlwaysOnTop()` were wrong and now match the wire contract: `isMinimized` resolves with `{ minimized }` (there is no `isMinimized` alias), and `isAlwaysOnTop` resolves with `{ enabled, isAlwaysOnTop }` (both carry the same value). Runtime behavior is unchanged; TypeScript code written against the old declarations must be updated.
+- `fb.playcount.set()` no longer sends the `count` key, which the host never read. No behavior change; the wire payload is simply smaller.
+- `fb.http.request()` now dispatches through the documented `http.get` endpoint; a stale internal parameter could previously forward a mismatched method name. The verb helpers (`fb.http.post()` / `put()` / `delete()` / `patch()`) keep dispatching to their own endpoints, including for binary responses.
+- Added `windowId` parameter typings for `window.getBackdropPolicy` and `window.setBackdropPolicy`. `setBackdropPolicy` requires `backdropPolicy` and does not fall back to the main window when no target resolves.
+- Added optional trailing `opts` arguments to five wrappers whose host handlers already read the corresponding keys: `fb.file.delete(path, opts?)` (`moveToTrash`), `fb.file.copy(source, destination, opts?)` (`overwrite`), and `fb.metadata.write(path, tags, opts?)` / `removeField(path, field, opts?)` / `removeTag(path, tags, opts?)` (`cueIndex`). `metadata.write` accepting `cueIndex` closes a real gap: v1.11.0 wired `cueIndex` into the metadata *read* path only, so writing a tag to a single track inside a CUE sheet or image file was not expressible through the SDK. Existing call sites are unaffected — every new argument is optional.
+- `fb.metadata.readByPath()` now resolves with `MetadataReadByPathResponse` instead of a bare `JsonObject`.
+- Corrected two published type declarations that did not match the host contract: `dsp.setChain` takes a **required** `dsps` array of `{ guid }` objects (it was typed `dsps?: string[]`, wrong in optionality, element type, and shape — the host rejects the call unless `dsps` is an array, and reads `guid` off each entry), and the `playlist:created` / `playlist:renamed` payloads keep `name: string`. TypeScript code written against the old `dsp.setChain` declaration must be updated.
+
+## v1.10.0 (2026-07-16)
+
+- Added `TrayMenuItem.orientation` for `type:'slider'` with `'horizontal' | 'vertical'`; horizontal is the default. Only the exact value `vertical` selects vertical behavior (min at the bottom / max at the top; Up/Right increase, Down/Left decrease, and Home/End select the bounds). `native` ignores the field and keeps the tiered submenu; older runtimes ignore the unknown field and remain horizontal. Range normalization swaps `max<min`; `max==min` is constant and emits no value; the initial value is clamped; out-of-range IPC values are rejected. `getMenuItems` round-trips the field. Available from v1.10.0; themes that must support older hosts should probe `config.getVersionInfo().plugin.version`.
+- Changed custom-menu focus to two modes: navigation with roving tabindex and real focus, and rich-control editing. ARIA uses `menuitem`, `menuitemcheckbox`, an internal `role=slider`, and a segmented `radiogroup`; `checked:false` remains checkable. Default entrance and exit transform/transition effects are disabled under `prefers-reduced-motion: reduce` without changing the hide protocol or `closeAnimationMs`.
+- Added `TrayMenuConfig.layoutMode` with `'flat' | 'zones'`. The default `'flat'` preserves direct `#menu > .fb-item` children. Explicit `'zones'` creates `.fb-zone[data-zone]` wrappers for non-empty top / playback / bottom sections. `native` ignores the field; older runtimes ignore the unknown field and create no wrapper; `menu.show` is unaffected. Available from v1.10.0; themes that must support older hosts should probe `config.getVersionInfo().plugin.version`.
+- Changed protected custom-menu CSS so the visible state no longer forces `#menu { display:block !important }`. Themes can make the root menu or zones flex or grid containers, but cannot use `display:* !important` to reveal a hidden menu.
+- Hardened custom-menu SVG icons by replacing raw `innerHTML` injection with DOMParser plus allowlisted element and attribute cloning. Invalid or individually oversized icons are discarded while the menu continues to render. `transform` is parsed strictly, rejecting prefixes, inter-function junk, and empty arguments, and nodes must be in the SVG namespace.
+- Added transactional resource-limit validation to `tray.setContextMenu`, `tray.appendMenuItems`, and `menu.show` before persistent configuration is written or an overlay opens: item ≤ 512, `menu.show` depth ≤ 8, segmented options ≤ 64, CSS ≤ 256 KiB, and aggregate SVG ≤ 256 KiB. A single SVG over 32 KiB is discarded without rejecting the whole menu. Other invalid or oversized input returns `INVALID_PARAMS` with `field` / `limit` / `actual` in `details`; this is an intentional incompatibility for unsafe input.
+- Hardened tray and custom-menu built-in action routing to use trusted internal provenance instead of a public id prefix. The sole compatibility exception is the exact, case-sensitive `_sys_exit` in the tray API, preserving the real exit behavior from 1.9.0. Caller-supplied `_pb_playPause` / `_pb_prev` / `_pb_next` / `_pb_stop` remain ordinary user items and cannot suppress runtime-injected trusted playback items through same-id deduplication. Opaque tokens distinguish duplicate public IDs, and public `menu.show` does not elevate them. Each selection or value change carries an unpredictable one-shot token validated against the current menu index; unknown or expired tokens, disabled items, and out-of-range rich values for rating / slider / segmented are rejected. Internal `menu.__*` IPC also verifies that the caller is the overlay window and that select / dismiss / ready / submenuPanel / valueChanged match the current menu id; external callers and stale or forged menuId values are rejected without changing menu state.
+- Custom tray `ContentSized` now measures the root and every first-level submenu offscreen after fonts are ready, then waits for stable dimensions across two consecutive frames. C++ uses 64-bit-safe slot allocation. The fixed HWND region covers only the currently visible root/submenu panel, so reserved space for unopened panels no longer creates a blank acrylic/mica area and the caller's configured backdrop is not silently disabled.
+- Clarified that a `segmented` value change in a custom tray menu follows the keep-open contract. A segment change emits `tray:menuItemClicked` with `{ id, value }`, where `value` is the zero-based selected-segment index, and does **not close** the menu, matching `rating` and `slider`. The `webview` runtime already kept the menu open; this corrects the shared contract and event documentation that previously listed only `rating` / `slider`.
+- Fixed extra separators for completely hidden or empty tray-menu sections. Previously, filtering all items with `visible:false` could leave a leading or trailing separator. Visibility is now filtered before separator decisions, so neither native nor webview menus render that separator.
+- Corrected the documentation for `TrayMenuItem.icon`: base64 ICO remains reserved and neither backend renders it (`native` is text-only and webview renders `iconSvg`). Use `iconSvg` for menu-item icons.
+
+## v1.9.0 (2026-06-18)
+
+- Added icons for normal and submenu items in custom tray menus (`render: 'webview'`) through `TrayMenuItem.iconSvg = { viewBox, content }`. Inline monochrome SVG follows menu text color through `currentColor` and uses a fixed 8px left-aligned gap. When any peer has an icon, all normal and submenu items reserve a 16px icon column for text alignment. `native` menus ignore it.
+- Added `config.autoNowPlaying` to `tray.setContextMenu`. When enabled, empty cover/title/subtitle fields on a `nowplaying` item fall back to the current track when the context menu opens; caller-provided values take precedence. The `cover` fallback is `webview`-only and uses a thumbnail of current artwork. title/subtitle use `%title%` with filename fallback and `%artist%`, including dynamic streaming titles.
+- Extended `TrayMenuItem.cover` to accept `http(s)://` URLs in addition to existing `data:` values and raw base64, allowing streaming frontends to pass live artwork directly.
+- Updated the SDK package to `1.9.0`.
+
+## v1.8.0 (2026-06-10)
+
+- Added custom-menu rendering through `menu.show` / `menu.close`, with WebView-rendered content and recursive submenus. The menu window uses a content-sized fixed-window strategy to prevent expansion flicker.
+- Added `render: 'webview'` to `tray.*`, allowing tray context menus to use custom rendering consistent with the theme.
+- Added `tray.setMenuItemState` to update one menu item's state without rebuilding the entire menu.
+- Fixed clicks on always-on-top popups such as desktop lyrics occasionally bringing the main window to the foreground and making it topmost (the rollback path inserted z-order into the topmost band and formed a sink restoration reference loop).
+- Fixed missing global `HTMLElementTagNameMap` declarations in the published SDK so npm consumers regain type completion for `fb-*` custom elements.
+- Fixed package-script compatibility with newer PowerShell versions when generating `.fb2k-component` archives.
+- Hardened the HttpApi asynchronous-request exception boundary and fixed a NUL string-handling defect in LibraryApi.
+- Updated the SDK package to `1.8.0`; `bump-version.ps1` now also synchronizes `sdk/package-lock.json` and the VitePress navigation version.
+
+## v1.7.0 (2026-06-06)
+
+- Added Taskbar & Tray capabilities. `taskbar.*` can configure thumbnail-toolbar buttons, progress, overlay icons, and flash notifications; `tray.*` can create a system-tray icon, balloon notifications, and context menus.
+- Added incremental menu management to `tray.*` through `appendMenuItems` / `removeMenuItems` / `clearMenuItems` / `getMenuItems`, allowing `top` / `playback` / `bottom` sections to be maintained without rebuilding the entire menu.
+- Added `taskbar:buttonClicked`, `tray:click`, `tray:doubleClick`, `tray:menuItemClicked`, and `tray:beforeContextMenu` events for taskbar-thumbnail and tray interaction.
+- Added `webview:processFailed`, which broadcasts diagnostics for WebView2 render-process failures and works with automatic render-process recovery to reduce blank-window failures.
+- Added high-resolution playback-position event `playback:timeHighRes`, driven by a dedicated WinAPI timer for sub-second lyrics and progress updates.
+- Moved cold-cache full serialization for `library.getAll` to a background thread. The SDK waits for `library:getAllResult` and correlates it by `requestId` so large-library queries do not block the UI.
+- Fixed the window restoration path after hiding to tray, including WebView surface recovery for `window.focus` / hidden restore, reducing blank surfaces after minimize, tray hide, or Alt+Tab restoration.
+- Fixed corrupt base64 for the taskbar-thumbnail pause icon and corrected HICON ownership, preventing malformed playback buttons and explorer.exe crashes.
+- Updated the SDK package to `1.7.0`, including the new Taskbar & Tray types and event declarations.
+- Added a Taskbar & Tray API page to VitePress and synchronized Cursor, high-frequency Playback events, and related examples.
+
+## v1.6.1 (2026-05-20)
+
+- Added the `cursor.*` namespace: `cursor.setHidden(hidden)` / `cursor.isHidden()` explicitly control client-area cursor visibility, addressing unreliable CSS `cursor: none` behavior under Visual Hosting.
+- Added per-window `cursor:hiddenChanged` events.
+- Added the `insecureTls` parameter to `fb.http.*` behind two gates: the global `Allow self-signed / invalid TLS certificates` setting must be ON and the request must specify `insecureTls: true`. This allows explicitly authorized access to self-signed intranet services such as Plex / Jellyfin / Lidarr.
+- Added `responseType: 'arraybuffer' | 'binary'` to `fb.http.*`; the body is base64-decoded to an `ArrayBuffer`, so binary artwork and fonts no longer fail strict UTF-8 validation.
+- Updated the VitePress cursor.md / http.md / events.md documentation for these changes.
+
+## v1.6.0 (2026-05-11)
+
+- Removed `duration` from `playlist.getAll` to avoid reading every track solely to calculate duration; `playlist.getActive` / `playlist.getPlaying` still return it.
+- Changed `http.get` / `http.post` / `http.head` to asynchronous by default. Pass `async: false` explicitly for a synchronous call.
+
+## v1.1.17 (2026-02-06) 
+
+- Added full multi-window support.
+- Added `window.createPopup` / `closePopup` / `closeAllPopups` / `getAllWindows`.
+- Added `window.sendMessage` / `window.broadcast` for inter-window messaging.
+- Added asynchronous close, frameless windows, and transparent backgrounds.
+
+## v1.1.16 (2026-02-06)
