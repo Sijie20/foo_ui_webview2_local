@@ -9,6 +9,7 @@
 #include "api/LibraryApi.h"
 #include "api/WindowApi.h"
 #include "api/ArtworkApi.h"
+#include "api/CloudApi.h"
 #include "api/FileApi.h"
 #include "api/DialogApi.h"
 #include "api/ClipboardApi.h"
@@ -53,6 +54,7 @@ void WebViewPanel::RegisterAllApis() {
     RegisterLibraryApi();
     RegisterWindowApi();
     RegisterArtworkApi();
+    RegisterCloudApi();  // local 2.2.1: port cloud.getStates (read-only cloud placeholder metadata)
     RegisterFileApi();
     RegisterDialogApi();
     RegisterClipboardApi();

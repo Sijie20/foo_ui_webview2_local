@@ -366,6 +366,9 @@
     <ClCompile Include="src\api\ArtworkRequestParser.cpp">
       <Filter>src\api</Filter>
     </ClCompile>
+    <ClCompile Include="src\api\CloudApi.cpp">
+      <Filter>src\api</Filter>
+    </ClCompile>
     <ClCompile Include="src\utils\PlaylistFormatUtils.cpp">
       <Filter>src\utils</Filter>
     </ClCompile>
@@ -681,6 +684,15 @@
       <Filter>src\webview\dnd</Filter>
     </ClInclude>
     <ClInclude Include="src\api\ArtworkRequestParser.h">
+      <Filter>src\api</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\CloudApi.h">
+      <Filter>src\api</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\CloudState.h">
+      <Filter>src\api</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\generated\CloudSchema.h">
       <Filter>src\api</Filter>
     </ClInclude>
     <ClInclude Include="src\webview\ArtworkRequestLifecycle.h">

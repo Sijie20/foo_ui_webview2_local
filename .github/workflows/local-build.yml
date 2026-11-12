@@ -1,0 +1,36 @@
+name: local-build
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [local-2.2.1]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Clone columns_ui-sdk
+        run: |
+          git clone --depth=1 https://github.com/reupen/columns_ui-sdk.git lib/columns_ui-sdk
+          (Get-Content lib/columns_ui-sdk/ui_extension.h) -replace '\.\./pfc/', '../foobar2000_sdk/pfc/' -replace '\.\./foobar2000/', '../foobar2000_sdk/foobar2000/' | Set-Content lib/columns_ui-sdk/ui_extension.h
+      - name: Restore NuGet packages
+        run: nuget restore foo_ui_webview2.sln
+      - name: Build package
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -products * -property installationPath -prerelease | Select-Object -First 1
+          $msbuild = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+          $hasV145 = Get-ChildItem -Path (Join-Path $vsPath "MSBuild\Microsoft\VC") -Recurse -Filter "Toolset.props" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\v145\\' }
+          $toolsetArgs = @()
+          if (-not $hasV145) {
+            Write-Host "v145 toolset not found on runner; overriding PlatformToolset=v143"
+            $toolsetArgs = @("/p:PlatformToolset=v143")
+          }
+          & $msbuild foo_ui_webview2.sln /t:foo_ui_webview2 /p:Configuration=Release /p:Platform=Win32 @toolsetArgs /m /nologo /v:m
+          if ($LASTEXITCODE -ne 0) { throw "Win32 build failed ($LASTEXITCODE)" }
+          & $msbuild foo_ui_webview2.sln /t:foo_ui_webview2 /p:Configuration=Release /p:Platform=x64 @toolsetArgs /m /nologo /v:m
+          if ($LASTEXITCODE -ne 0) { throw "x64 build failed ($LASTEXITCODE)" }
+          .\build-package.ps1 -Configuration Release -SkipBuild -IncludeSDK:$false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: component
+          path: dist/*.fb2k-component
