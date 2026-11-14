@@ -5,6 +5,7 @@
 .DESCRIPTION
     Performs four post-build checks on the produced .fb2k-component archive:
       [1] File inventory whitelist  -- required files must exist (x86 + x64 dll, WebView2Loader)
+          Component DLLs may use the standard name or the _local packaging alias.
       [2] File inventory blacklist  -- forbidden artefacts (PDB / ILK / LIB / OBJ / MAP /
                                        any *test*.dll / *_test.* / docs leak / sourcemap)
       [3] Size regression           -- total archive must fit a budget (default 20 MB);
@@ -112,6 +113,12 @@ $REQUIRED_FILES = @(
     "x64/WebView2Loader.dll"
 )
 
+# Only component DLL requirements accept the -Local packaging aliases.
+$REQUIRED_DLL_ALIASES = @{
+    "foo_ui_webview2.dll" = "foo_ui_webview2_local.dll"
+    "x64/foo_ui_webview2.dll" = "x64/foo_ui_webview2_local.dll"
+}
+
 # Pattern -> reason mapping (regex, case-insensitive on Windows paths)
 $FORBIDDEN_PATTERNS = @{
     "\.pdb$"        = "debug symbol (PDB) must not ship in release component"
@@ -141,7 +148,9 @@ $pkgNames = $pkgEntries | ForEach-Object { $_.Name }
 $pkgNamesSet = @{}
 foreach ($n in $pkgNames) { $pkgNamesSet[$n] = $true }
 foreach ($req in $REQUIRED_FILES) {
-    if (-not $pkgNamesSet.ContainsKey($req)) {
+    $hasLocalAlias = $REQUIRED_DLL_ALIASES.ContainsKey($req) -and
+        $pkgNamesSet.ContainsKey($REQUIRED_DLL_ALIASES[$req])
+    if (-not $pkgNamesSet.ContainsKey($req) -and -not $hasLocalAlias) {
         $violations += [PSCustomObject]@{
             Kind = "missing_required"
             Target = "component"
