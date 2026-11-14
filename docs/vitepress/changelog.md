@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.2.2 (2026-11-14, local)
+
+### New features
+
+- **Switch Theme in the View > WebView2 UI menu**: the component menu lists the available themes directly, shows the active one with a radio check, disables the entry when no theme is installed, and rechecks the theme directory before switching. An explicit menu selection navigates the window even when a failed development-server override left it on a local theme.
+- **Local package naming (`-Local`)**: `build-package.ps1 -Local` packs the component DLLs as `foo_ui_webview2_local.dll` for side-by-side local retention, while the default output keeps the standard name used for promotion. The package audit accepts the local aliases without relaxing any other requirement.
+- **Cloud state API (carried from v2.2.1 local)**: `cloud.getStates` is available to pages that need read-only cloud metadata.
 ## v2.2.0 (2026-11-11)
 
 ### New features

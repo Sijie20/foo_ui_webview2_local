@@ -2,7 +2,7 @@ name: local-build
 on:
   workflow_dispatch: {}
   push:
-    branches: [local-2.2.1]
+    branches: [local-2.2.1, local-2.2.2]
 jobs:
   build:
     runs-on: windows-latest
@@ -34,3 +34,9 @@ jobs:
         with:
           name: component
           path: dist/*.fb2k-component
+      - name: Build local package variant
+        run: .\build-package.ps1 -Configuration Release -SkipBuild -IncludeSDK:$false -Local
+      - uses: actions/upload-artifact@v4
+        with:
+          name: component-local
+          path: dist/*_local*.fb2k-component
