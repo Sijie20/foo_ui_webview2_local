@@ -8,13 +8,17 @@
     3. 单独创建 SDK ZIP（仅包含 sdk/ 目录）
     
     fb2k-component 包结构:
-    foo_ui_webview2.fb2k-component (ZIP)
+    foo_ui_webview2-X.X.X.fb2k-component (ZIP，默认命名)
     ├── foo_ui_webview2.dll          # x86 版本 (根目录)
     ├── WebView2Loader.dll           # x86 WebView2 加载器
     ├── x64/
     │   ├── foo_ui_webview2.dll      # x64 版本
     │   └── WebView2Loader.dll       # x64 WebView2 加载器
     └── foo_ui_webview2_resources/   # 前端资源 (可选)
+
+    -Local 时包名为 foo_ui_webview2_local-X.X.X.fb2k-component，
+    根目录及 x64/ 内 DLL 均命名为 foo_ui_webview2_local.dll。
+    构建输出仍读取 foo_ui_webview2.dll；资源目录及 SDK ZIP 命名不变。
 
     SDK ZIP 包结构 (-IncludeSDK):
     foo_ui_webview2-sdk-X.X.X.zip
@@ -31,6 +35,9 @@
 
 .PARAMETER IncludeSDK
     是否打包 JS SDK 为独立 ZIP (默认 true)
+
+.PARAMETER Local
+    使用 _local 共存命名打包组件（默认使用标准命名；不改变构建输出）
 
 .PARAMETER OutputDir
     输出目录 (默认 dist/)
@@ -57,7 +64,10 @@ param(
     [bool]$IncludeSDK = $true,
     
     [Parameter(Mandatory=$false)]
-    [string]$OutputDir = "dist"
+    [string]$OutputDir = "dist",
+
+    [Parameter(Mandatory=$false)]
+    [switch]$Local
 )
 
 $ErrorActionPreference = "Stop"
@@ -108,7 +118,9 @@ function Get-ComponentVersion {
 }
 
 $Version = Get-ComponentVersion
-$PackageName = "foo_ui_webview2-$Version.fb2k-component"
+$ComponentName = if ($Local) { "foo_ui_webview2_local" } else { "foo_ui_webview2" }
+$ComponentDllName = "$ComponentName.dll"
+$PackageName = "$ComponentName-$Version.fb2k-component"
 $SdkZipName = "foo_ui_webview2-sdk-$Version.zip"
 
 # 计算步骤总数
@@ -176,7 +188,7 @@ New-Item -Path $TempX64Dir -ItemType Directory -Force | Out-Null
 
 Write-Host "[3/$totalSteps] 复制文件..." -ForegroundColor Yellow
 
-# 确定 DLL 路径
+# 构建输出始终使用标准 DLL 名；仅在复制到包内时应用命名开关
 $X86DllPath = Join-Path $BinDir "$Configuration\foo_ui_webview2.dll"
 $X64DllPath = Join-Path $BinDir "${Configuration}_x64\foo_ui_webview2.dll"
 
@@ -189,7 +201,7 @@ if (-not (Test-Path $X64DllPath)) {
 }
 
 # 复制 x86 DLL 到根目录
-Copy-Item $X86DllPath $TempDir -Force
+Copy-Item $X86DllPath (Join-Path $TempDir $ComponentDllName) -Force
 Write-Host "      复制 x86 DLL" -ForegroundColor Gray
 
 # 复制 x86 WebView2Loader.dll
@@ -210,7 +222,7 @@ if (Test-Path $X86LoaderPath) {
 }
 
 # 复制 x64 DLL 到 x64 子目录
-Copy-Item $X64DllPath $TempX64Dir -Force
+Copy-Item $X64DllPath (Join-Path $TempX64Dir $ComponentDllName) -Force
 Write-Host "      复制 x64 DLL" -ForegroundColor Gray
 
 # 复制 x64 WebView2Loader.dll
@@ -476,14 +488,15 @@ Write-Host "║                     打包完成！                             
 Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Green
 Write-Host ""
 Write-Host "  [Component]" -ForegroundColor Cyan
+Write-Host "    DLL 命名: $ComponentDllName" -ForegroundColor Gray
 Write-Host "    文件: " -NoNewline
 Write-Host $PackagePath -ForegroundColor White
 Write-Host "    大小: " -NoNewline
 Write-Host "${SizeMB} MB" -ForegroundColor White
 Write-Host "    内容:" -ForegroundColor Gray
-Write-Host "      ├── foo_ui_webview2.dll      + WebView2Loader.dll  (x86)" -ForegroundColor Gray
+Write-Host "      ├── $ComponentDllName      + WebView2Loader.dll  (x86)" -ForegroundColor Gray
 Write-Host "      └── x64/" -ForegroundColor Gray
-Write-Host "          └── foo_ui_webview2.dll  + WebView2Loader.dll  (x64)" -ForegroundColor Gray
+Write-Host "          └── $ComponentDllName  + WebView2Loader.dll  (x64)" -ForegroundColor Gray
 
 if ($SdkZipPath -and (Test-Path $SdkZipPath)) {
     $SdkInfo = Get-Item $SdkZipPath
