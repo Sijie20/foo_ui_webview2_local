@@ -3,13 +3,14 @@
 The methods a page calls with `fb2k.invoke('namespace.method', params)`, by namespace. Events are listed in [Events API](./events.md). The SDK wraps these methods as `fb.*`; see [SDK namespaces](../sdk/namespaces.md).
 
 <!-- api-schema:begin index:namespaces -->
-471 methods in 42 namespaces.
+473 methods in 43 namespaces.
 
 | Namespace | Methods | Documented on |
 | --- | ---: | --- |
 | `artwork` | 13 | [Artwork API](./artwork.md) |
 | `audio` | 17 | [Audio API](./audio.md) |
 | `clipboard` | 4 | [Clipboard API](./clipboard.md) |
+| `cloud` | 1 | — |
 | `config` | 29 | [Config API](./config.md) |
 | `console` | 3 | [Console API](./console.md) |
 | `cursor` | 2 | [Cursor API](./cursor.md) |
@@ -28,7 +29,7 @@ The methods a page calls with `fb2k.invoke('namespace.method', params)`, by name
 | `lyrics` | 3 | [Lyrics API](./lyrics.md) |
 | `media` | 2 | [Media API](./media.md) |
 | `menu` | 8 | [Menu API](./menu.md) |
-| `metadata` | 12 | [Metadata API](./metadata.md) |
+| `metadata` | 13 | [Metadata API](./metadata.md) |
 | `misc` | 9 | [Misc API](./misc.md) |
 | `output` | 3 | [Output API](./output.md) |
 | `panel` | 2 | [Panel API](./panel.md) |

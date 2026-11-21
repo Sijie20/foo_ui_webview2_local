@@ -30,6 +30,15 @@ export interface Api {
   readRaw(params: ReadRawParams): ReadRawResult;
 
   /**
+   * Read the filesystem identity of a track's native media file under the media-read path policy.
+   * `NOT_FOUND` means the file or its containing path does not exist. Other failures to resolve,
+   * open or query the file use `OPERATION_FAILED`.
+   * @zh 按媒体读取路径策略查询曲目对应原生媒体文件的身份。文件或所在路径不存在时返回 `NOT_FOUND`，其他路径解析、打开或查询失败返回 `OPERATION_FAILED`
+   * @effect read
+   */
+  identity(params: IdentityParams): IdentityResult;
+
+  /**
    * Read the flat fields of several tracks, one row per path. A path that cannot be read gets a
    * row with its own error and does not fail the call. The reads run on the main thread; prefer
    * `metadata.probeBatchAsync` for many files. UTF-8 handling is the same as `metadata.read`.
@@ -74,8 +83,9 @@ export interface Api {
    * reports its own outcome later as `metadata:writeComplete`, so a file that does not exist
    * still counts here. When any entry fails, the call fails with `OPERATION_FAILED` and the
    * failure carries the same `successCount`, `failCount` and `errors`; the other entries were
-   * queued all the same.
-   * @zh 批量排入多个曲目的标签写入请求，并报告成功入队的数量；已派发的单项写入在完成后独立广播 `metadata:writeComplete` 事件（不存在的文件在此阶段亦计入入队成功）；若有条目参数非法则整次调用以 `OPERATION_FAILED` 失败（错误详情附带 `successCount`、`failCount` 与 `errors` 列表，其他合法项照常入队）
+   * queued all the same. The success or partial-failure response and all completion events for
+   * this batch share one `requestId`.
+   * @zh 批量排入多个曲目的标签写入请求，并报告成功入队的数量；已派发的单项写入在完成后独立广播 `metadata:writeComplete` 事件（不存在的文件在此阶段亦计入入队成功）；若有条目参数非法则整次调用以 `OPERATION_FAILED` 失败（错误详情附带 `successCount`、`failCount` 与 `errors` 列表，其他合法项照常入队）；回执（包括部分失败的错误回执）与本批全部完成事件共用同一个 `requestId`
    * @effect destructive
    * @idempotent
    */
@@ -272,6 +282,16 @@ interface WriteCompletePayload {
    * @zh 依据状态码转换的语义化状态：`success`、`aborted` 或 `error`
    */
   status: 'success' | 'aborted' | 'error';
+  /**
+   * The write request's ID from its receipt. All dispatched entries in a batch share this ID.
+   * @zh 写入回执中的请求编号。同一批次的所有派发条目共用此编号
+   */
+  requestId: Int;
+  /**
+   * Actual path of the foobar2000 handle targeted by the write.
+   * @zh 本次写入目标在 foobar2000 曲目句柄中的实际路径
+   */
+  handlePath: string;
 }
 
 /**
@@ -428,6 +448,57 @@ interface ReadRawResult {
    * @zh 元数据来源标识，固定为 `file`（直接读取物理文件而非内存缓存）
    */
   source: string;
+}
+
+// ---- identity ----
+
+interface IdentityParams {
+  /**
+   * Track path. A `|subsong:N` suffix or a trailing `#N` can select a subsong.
+   * @zh 曲目路径。可用 `|subsong:N` 后缀或末尾的 `#N` 指定子曲目
+   * @minLength 1
+   */
+  path: string;
+  /**
+   * Subsong index that wins over a suffix in `path`; negative values are ignored.
+   * @zh 显式指定的子曲目序号（优先级高于 `path` 中的后缀）；传入负数时忽略
+   * @default -1
+   * @maximum 4294967295
+   */
+  cueIndex?: Int;
+}
+
+interface IdentityResult {
+  /**
+   * The input path, including any suffix.
+   * @zh 请求中的原样路径，包含所传后缀
+   */
+  path: string;
+  /**
+   * The foobar2000 canonical path supplied to the host's handle creation.
+   * @zh 用于创建宿主曲目句柄的 foobar2000 规范路径
+   */
+  canonicalPath: string;
+  /**
+   * Actual path stored in the foobar2000 handle.
+   * @zh foobar2000 曲目句柄中的实际路径
+   */
+  handlePath: string;
+  /**
+   * Subsong index used to create the handle. Defaults to 0.
+   * @zh 创建曲目句柄时使用的子曲目序号，默认值为 0
+   */
+  subsong: Int;
+  /**
+   * Volume serial number as 16 upper-case hexadecimal digits.
+   * @zh 卷序列号，16 位大写十六进制字符
+   */
+  volumeSerial: string;
+  /**
+   * The 128-bit file ID as 32 upper-case hexadecimal digits, in Windows identifier byte order.
+   * @zh 128 位文件 ID，按 Windows 标识符字节顺序编码为 32 位大写十六进制字符
+   */
+  fileId: string;
 }
 
 // ---- readBatch ----
@@ -624,6 +695,11 @@ interface WriteResult {
    * @zh 本次成功删除的标签字段数量（包含传入空数组的项）；派发时返回
    */
   tagsRemoved?: Int;
+  /**
+   * Process-wide request ID, increasing from 1. Returned even when there is nothing to write.
+   * @zh 进程内从 1 递增的请求编号。无待写内容时也返回
+   */
+  requestId: Int;
 }
 
 // ---- writeBatch ----
@@ -685,6 +761,11 @@ interface WriteBatchResult {
    * @zh 派发失败的条目详情列表（整批成功时固定为空数组）
    */
   errors: MetadataWriteBatchError[];
+  /**
+   * Process-wide request ID, shared by all completion events for this batch.
+   * @zh 进程内的请求编号，本批次的所有完成事件共用
+   */
+  requestId: Int;
 }
 
 /**
@@ -869,4 +950,9 @@ interface RemoveTagResult {
    * @zh 状态提示说明（提示最终删除结果由 `metadata:writeComplete` 广播）
    */
   note?: string;
+  /**
+   * Process-wide request ID. Returned even when `tags` is empty.
+   * @zh 进程内的请求编号。`tags` 为空时也返回
+   */
+  requestId: Int;
 }

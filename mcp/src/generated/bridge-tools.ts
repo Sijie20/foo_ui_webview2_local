@@ -2125,7 +2125,7 @@ export const bridgeTools: readonly ToolDefinition[] = [
     },
     {
         "name": "fb2k_track_read",
-        "description": "Read track files: tags and technical info from the library cache or straight from the file, the tags of several files at once, a track's rating, and its cover art. Changes nothing.\n\nPass one of these as `action`, with the parameters it lists; `?` marks an optional one.\n- metadata.read(path, cueIndex?): Read all metadata tags of a file (structured: tags + info separated)\n- metadata.readRaw(path, cueIndex?): Read metadata directly from file, bypassing metadb cache (source: file)\n- metadata.readBatch(paths): Batch read metadata tags of multiple files (flat format)\n- rating.get(path, cueIndex?): Get track rating (reads foo_playcount stats first, falls back to RATING tag)\n- artwork.getForTrack(path, type?): Get the cover art of a specific track file; the picture comes back as an image, the other fields as JSON\n- artwork.getCurrent(type?): Get the cover art of the currently playing track; the picture comes back as an image, the other fields as JSON",
+        "description": "Read track files: tags and technical info from the library cache or straight from the file, the tags of several files at once, a track's rating, cover art, and native file identity. Changes nothing.\n\nPass one of these as `action`, with the parameters it lists; `?` marks an optional one.\n- metadata.read(path, cueIndex?): Read all metadata tags of a file (structured: tags + info separated)\n- metadata.readRaw(path, cueIndex?): Read metadata directly from file, bypassing metadb cache (source: file)\n- metadata.readBatch(paths): Batch read metadata tags of multiple files (flat format)\n- metadata.identity(path, cueIndex?): Read the volume serial number, 128-bit file ID, and foobar2000 handle path of a native media file\n- rating.get(path, cueIndex?): Get track rating (reads foo_playcount stats first, falls back to RATING tag)\n- artwork.getForTrack(path, type?): Get the cover art of a specific track file; the picture comes back as an image, the other fields as JSON\n- artwork.getCurrent(type?): Get the cover art of the currently playing track; the picture comes back as an image, the other fields as JSON",
         "annotations": {
             "readOnlyHint": true,
             "openWorldHint": false
@@ -2140,6 +2140,7 @@ export const bridgeTools: readonly ToolDefinition[] = [
                         "metadata.read",
                         "metadata.readRaw",
                         "metadata.readBatch",
+                        "metadata.identity",
                         "rating.get",
                         "artwork.getForTrack",
                         "artwork.getCurrent"
@@ -2229,6 +2230,25 @@ export const bridgeTools: readonly ToolDefinition[] = [
                     },
                     "required": [
                         "paths"
+                    ]
+                }
+            },
+            "metadata.identity": {
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "cueIndex": {
+                            "type": "integer",
+                            "maximum": 4294967295,
+                            "default": -1
+                        }
+                    },
+                    "required": [
+                        "path"
                     ]
                 }
             },

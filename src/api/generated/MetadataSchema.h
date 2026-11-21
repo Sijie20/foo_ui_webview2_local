@@ -22,6 +22,8 @@ struct ReadByPathResult;
 struct ReadByPathParams;
 struct ReadRawResult;
 struct ReadRawParams;
+struct IdentityResult;
+struct IdentityParams;
 struct MetadataReadBatchItem;
 struct ReadBatchResult;
 struct ReadBatchParams;
@@ -54,6 +56,8 @@ inline json ToJson(const ReadByPathResult& v);
 inline bool FromJson(const json& j, ReadByPathParams& out, std::string& error, const std::string& where = {});
 inline json ToJson(const ReadRawResult& v);
 inline bool FromJson(const json& j, ReadRawParams& out, std::string& error, const std::string& where = {});
+inline json ToJson(const IdentityResult& v);
+inline bool FromJson(const json& j, IdentityParams& out, std::string& error, const std::string& where = {});
 inline json ToJson(const MetadataReadBatchItem& v);
 inline json ToJson(const ReadBatchResult& v);
 inline bool FromJson(const json& j, ReadBatchParams& out, std::string& error, const std::string& where = {});
@@ -202,6 +206,47 @@ inline bool FromJson(const json& j, ReadRawParams& out, std::string& error, cons
         && r.Optional("cueIndex", out.cueIndex);
 }
 
+struct IdentityResult {
+    static constexpr std::array<std::string_view, 6> kFields{{"path", "canonicalPath", "handlePath", "subsong", "volumeSerial", "fileId"}};
+
+    std::string path{};
+    std::string canonicalPath{};
+    std::string handlePath{};
+    std::int64_t subsong{};
+    std::string volumeSerial{};
+    std::string fileId{};
+};
+
+inline json ToJson(const IdentityResult& v) {
+    json j = json::object();
+    api::results::Put(j, "path", v.path);
+    api::results::Put(j, "canonicalPath", v.canonicalPath);
+    api::results::Put(j, "handlePath", v.handlePath);
+    api::results::Put(j, "subsong", v.subsong);
+    api::results::Put(j, "volumeSerial", v.volumeSerial);
+    api::results::Put(j, "fileId", v.fileId);
+    return j;
+}
+
+struct IdentityParams {
+    static constexpr const char* kMethod = "metadata.identity";
+    static constexpr std::array<api::params::PathParam, 0> kPathParams{};
+    using Result = IdentityResult;
+
+    std::string path{};
+    std::int64_t cueIndex = -1;
+};
+
+inline bool FromJson(const json& j, IdentityParams& out, std::string& error, const std::string& where) {
+    api::params::Reader r(j, error, where);
+    return r.IsObject()
+        && r.OnlyKeys({"path", "cueIndex"})
+        && r.Required("path", out.path)
+        && r.MinLength("path", out.path, 1)
+        && r.Optional("cueIndex", out.cueIndex)
+        && r.Range("cueIndex", out.cueIndex, std::nullopt, std::optional<std::int64_t>(4294967295));
+}
+
 struct MetadataReadBatchItem {
     static constexpr std::array<std::string_view, 4> kFields{{"path", "success", "tags", "error"}};
 
@@ -314,7 +359,7 @@ inline bool FromJson(const json& j, CancelProbeParams& out, std::string& error, 
 }
 
 struct WriteResult {
-    static constexpr std::array<std::string_view, 8> kFields{{"path", "note", "dispatched", "handlePath", "subsong", "tagsApplied", "tagsSet", "tagsRemoved"}};
+    static constexpr std::array<std::string_view, 9> kFields{{"path", "note", "dispatched", "handlePath", "subsong", "tagsApplied", "tagsSet", "tagsRemoved", "requestId"}};
 
     std::string path{};
     std::string note{};
@@ -324,6 +369,7 @@ struct WriteResult {
     std::optional<std::map<std::string, json>> tagsApplied{};
     std::optional<std::int64_t> tagsSet{};
     std::optional<std::int64_t> tagsRemoved{};
+    std::int64_t requestId{};
 };
 
 inline json ToJson(const WriteResult& v) {
@@ -336,6 +382,7 @@ inline json ToJson(const WriteResult& v) {
     api::results::Put(j, "tagsApplied", v.tagsApplied);
     api::results::Put(j, "tagsSet", v.tagsSet);
     api::results::Put(j, "tagsRemoved", v.tagsRemoved);
+    api::results::Put(j, "requestId", v.requestId);
     return j;
 }
 
@@ -374,11 +421,12 @@ inline json ToJson(const MetadataWriteBatchError& v) {
 }
 
 struct WriteBatchResult {
-    static constexpr std::array<std::string_view, 3> kFields{{"successCount", "failCount", "errors"}};
+    static constexpr std::array<std::string_view, 4> kFields{{"successCount", "failCount", "errors", "requestId"}};
 
     std::int64_t successCount{};
     std::int64_t failCount{};
     std::vector<MetadataWriteBatchError> errors{};
+    std::int64_t requestId{};
 };
 
 inline json ToJson(const WriteBatchResult& v) {
@@ -386,6 +434,7 @@ inline json ToJson(const WriteBatchResult& v) {
     api::results::Put(j, "successCount", v.successCount);
     api::results::Put(j, "failCount", v.failCount);
     api::results::Put(j, "errors", v.errors);
+    api::results::Put(j, "requestId", v.requestId);
     return j;
 }
 
@@ -503,7 +552,7 @@ inline bool FromJson(const json& j, RemoveEmbeddedArtParams& out, std::string& e
 }
 
 struct RemoveTagResult {
-    static constexpr std::array<std::string_view, 6> kFields{{"path", "removedTags", "removedCount", "dispatched", "subsong", "note"}};
+    static constexpr std::array<std::string_view, 7> kFields{{"path", "removedTags", "removedCount", "dispatched", "subsong", "note", "requestId"}};
 
     std::string path{};
     std::vector<std::string> removedTags{};
@@ -511,6 +560,7 @@ struct RemoveTagResult {
     std::optional<bool> dispatched{};
     std::optional<std::int64_t> subsong{};
     std::optional<std::string> note{};
+    std::int64_t requestId{};
 };
 
 inline json ToJson(const RemoveTagResult& v) {
@@ -521,6 +571,7 @@ inline json ToJson(const RemoveTagResult& v) {
     api::results::Put(j, "dispatched", v.dispatched);
     api::results::Put(j, "subsong", v.subsong);
     api::results::Put(j, "note", v.note);
+    api::results::Put(j, "requestId", v.requestId);
     return j;
 }
 
@@ -545,7 +596,7 @@ inline bool FromJson(const json& j, RemoveTagParams& out, std::string& error, co
 }
 
 struct RemoveFieldResult {
-    static constexpr std::array<std::string_view, 6> kFields{{"path", "removedTags", "removedCount", "dispatched", "subsong", "note"}};
+    static constexpr std::array<std::string_view, 7> kFields{{"path", "removedTags", "removedCount", "dispatched", "subsong", "note", "requestId"}};
 
     std::string path{};
     std::vector<std::string> removedTags{};
@@ -553,6 +604,7 @@ struct RemoveFieldResult {
     std::optional<bool> dispatched{};
     std::optional<std::int64_t> subsong{};
     std::optional<std::string> note{};
+    std::int64_t requestId{};
 };
 
 inline json ToJson(const RemoveFieldResult& v) {
@@ -563,6 +615,7 @@ inline json ToJson(const RemoveFieldResult& v) {
     api::results::Put(j, "dispatched", v.dispatched);
     api::results::Put(j, "subsong", v.subsong);
     api::results::Put(j, "note", v.note);
+    api::results::Put(j, "requestId", v.requestId);
     return j;
 }
 
@@ -647,7 +700,7 @@ inline json ToJson(const ProbeCompletePayload& v) {
 }
 
 struct WriteCompletePayload {
-    static constexpr std::array<std::string_view, 6> kFields{{"operation", "path", "subsong", "code", "success", "status"}};
+    static constexpr std::array<std::string_view, 8> kFields{{"operation", "path", "subsong", "code", "success", "status", "requestId", "handlePath"}};
 
     std::string operation{};
     std::string path{};
@@ -655,6 +708,8 @@ struct WriteCompletePayload {
     std::int64_t code{};
     bool success{};
     std::string status{};
+    std::int64_t requestId{};
+    std::string handlePath{};
 };
 
 inline json ToJson(const WriteCompletePayload& v) {
@@ -665,6 +720,8 @@ inline json ToJson(const WriteCompletePayload& v) {
     api::results::Put(j, "code", v.code);
     api::results::Put(j, "success", v.success);
     api::results::Put(j, "status", v.status);
+    api::results::Put(j, "requestId", v.requestId);
+    api::results::Put(j, "handlePath", v.handlePath);
     return j;
 }
 

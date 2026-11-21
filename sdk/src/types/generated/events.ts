@@ -724,6 +724,10 @@ export interface MetadataWriteCompletePayload {
     success: boolean;
     /** `success`, `aborted` or `error`, after `code`. */
     status: "success" | "aborted" | "error";
+    /** The write request's ID from its receipt. All dispatched entries in a batch share this ID. */
+    requestId: number;
+    /** Actual path of the foobar2000 handle targeted by the write. */
+    handlePath: string;
 }
 
 /**

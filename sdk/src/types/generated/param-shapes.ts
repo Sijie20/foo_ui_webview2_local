@@ -340,6 +340,12 @@ export const API_PARAM_SHAPES: { readonly [M in keyof ApiParamsMap]: ParamShape 
             "html"
         ]
     },
+    "cloud.getStates": {
+        "keys": {
+            "paths": null,
+            "directory": null
+        }
+    },
     "config.export": {
         "keys": {}
     },
@@ -1659,6 +1665,15 @@ export const API_PARAM_SHAPES: { readonly [M in keyof ApiParamsMap]: ParamShape 
         "required": [
             "path",
             "imageData"
+        ]
+    },
+    "metadata.identity": {
+        "keys": {
+            "path": null,
+            "cueIndex": null
+        },
+        "required": [
+            "path"
         ]
     },
     "metadata.probeBatchAsync": {

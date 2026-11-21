@@ -56,6 +56,7 @@ import type {
     ClipboardWriteParams,
     ClipboardWriteFilesParams,
     ClipboardWriteHTMLParams,
+    CloudGetStatesParams,
     ConfigExportParams,
     ConfigGetParams,
     ConfigGetActiveDspPresetParams,
@@ -220,6 +221,7 @@ import type {
     MenuShowNativePopupParams,
     MetadataCancelProbeParams,
     MetadataEmbedArtworkParams,
+    MetadataIdentityParams,
     MetadataProbeBatchAsyncParams,
     MetadataReadParams,
     MetadataReadBatchParams,
@@ -529,6 +531,7 @@ import type {
     ClipboardWriteResponse,
     ClipboardWriteFilesResponse,
     ClipboardWriteHTMLResponse,
+    CloudGetStatesResponse,
     ConfigExportResponse,
     ConfigGetResponse,
     ConfigGetActiveDspPresetResponse,
@@ -693,6 +696,7 @@ import type {
     MenuShowNativePopupResponse,
     MetadataCancelProbeResponse,
     MetadataEmbedArtworkResponse,
+    MetadataIdentityResponse,
     MetadataProbeBatchAsyncResponse,
     MetadataReadResponse,
     MetadataReadBatchResponse,
@@ -1007,6 +1011,7 @@ export interface ApiMethodMap {
     "clipboard.write": [ClipboardWriteParams, ClipboardWriteResponse];
     "clipboard.writeFiles": [ClipboardWriteFilesParams, ClipboardWriteFilesResponse];
     "clipboard.writeHTML": [ClipboardWriteHTMLParams, ClipboardWriteHTMLResponse];
+    "cloud.getStates": [CloudGetStatesParams, CloudGetStatesResponse];
     "config.export": [ConfigExportParams, ConfigExportResponse];
     "config.get": [ConfigGetParams, ConfigGetResponse];
     "config.getActiveDspPreset": [ConfigGetActiveDspPresetParams, ConfigGetActiveDspPresetResponse];
@@ -1191,6 +1196,7 @@ export interface ApiMethodMap {
     "menu.showNativePopup": [MenuShowNativePopupParams, MenuShowNativePopupResponse];
     "metadata.cancelProbe": [MetadataCancelProbeParams, MetadataCancelProbeResponse];
     "metadata.embedArtwork": [MetadataEmbedArtworkParams, MetadataEmbedArtworkResponse];
+    "metadata.identity": [MetadataIdentityParams, MetadataIdentityResponse];
     "metadata.probeBatchAsync": [MetadataProbeBatchAsyncParams, MetadataProbeBatchAsyncResponse];
     "metadata.read": [MetadataReadParams, MetadataReadResponse];
     "metadata.readBatch": [MetadataReadBatchParams, MetadataReadBatchResponse];

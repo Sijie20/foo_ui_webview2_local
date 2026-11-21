@@ -412,8 +412,8 @@
       }
     },
     "fb2k_track_read": {
-      "description": "Read track files: tags and technical info from the library cache or straight from the file, the tags of several files at once, a track's rating, and its cover art. Changes nothing.",
-      "zh": "读取曲目文件：取自媒体库缓存或直接读文件的标签与技术信息，一次读取多个文件的标签，曲目的评分，以及封面。不改动任何东西。",
+      "description": "Read track files: tags and technical info from the library cache or straight from the file, the tags of several files at once, a track's rating, cover art, and native file identity. Changes nothing.",
+      "zh": "读取曲目文件：取自媒体库缓存或直接读文件的标签与技术信息，一次读取多个文件的标签，曲目的评分、封面及原生文件身份。不改动任何东西。",
       "params": {
         "path": "Track path: native, `file://`, or with a `|subsong:N` suffix selecting a subsong; the metadata and rating actions also take a trailing `#N`."
       },
@@ -426,6 +426,9 @@
         },
         "metadata.readBatch": {
           "description": "Batch read metadata tags of multiple files (flat format)"
+        },
+        "metadata.identity": {
+          "description": "Read the volume serial number, 128-bit file ID, and foobar2000 handle path of a native media file"
         },
         "rating.get": {
           "description": "Get track rating (reads foo_playcount stats first, falls back to RATING tag)"

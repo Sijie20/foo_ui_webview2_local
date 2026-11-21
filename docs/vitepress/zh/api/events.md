@@ -713,6 +713,8 @@ foobar2000 启动阶段载入媒体库完毕且宿主完成缓存清理后触发
 | `code` | `integer` | foobar2000 宿主完成状态码：`0` 成功，`1` 中止，`2` 出错 |
 | `success` | `boolean` | 写入是否完全成功（当且仅当 `code === 0` 时为 `true`） |
 | `status` | `"success" \| "aborted" \| "error"` | 依据状态码转换的语义化状态：`success`、`aborted` 或 `error` |
+| `requestId` | `integer` | 写入回执中的请求编号。同一批次的所有派发条目共用此编号 |
+| `handlePath` | `string` | 本次写入目标在 foobar2000 曲目句柄中的实际路径 |
 <!-- api-schema:end -->
 
 ## metadb 事件

@@ -143,7 +143,7 @@ npm start
 工具的注解对其中每个 action 都成立，所以只读工具不会改动任何东西。调用到达 foobar2000 之前，服务器按所选方法自己的声明检查参数；方法会拒绝的情况以工具错误返回，说明问题并列出该方法接受的参数。返回值就是该方法经 `fb2k.invoke()` 返回的内容，以紧凑 JSON 给出。`artwork.getCurrent` 与 `artwork.getForTrack` 例外：封面以图片返回，其余字段仍是 JSON。
 
 <!-- mcp-tools:begin -->
-**10 个 Bridge 工具**，覆盖 93 个宿主方法，按命名空间与是否改动东西分组；页面工具见下文。每个工具接收 `action`（要调用的宿主方法），该方法的参数与它并列传入。带 `?` 的参数可以省略；参数的类型、取值范围与默认值见各工具的输入 schema。
+**10 个 Bridge 工具**，覆盖 94 个宿主方法，按命名空间与是否改动东西分组；页面工具见下文。每个工具接收 `action`（要调用的宿主方法），该方法的参数与它并列传入。带 `?` 的参数可以省略；参数的类型、取值范围与默认值见各工具的输入 schema。
 
 ### `fb2k_playback_read`
 
@@ -301,15 +301,16 @@ npm start
 
 ### `fb2k_track_read`
 
-只读 · 6 个 action
+只读 · 7 个 action
 
-读取曲目文件：取自媒体库缓存或直接读文件的标签与技术信息，一次读取多个文件的标签，曲目的评分，以及封面。不改动任何东西。
+读取曲目文件：取自媒体库缓存或直接读文件的标签与技术信息，一次读取多个文件的标签，曲目的评分、封面及原生文件身份。不改动任何东西。
 
 | Action | 参数 | 说明 |
 |--------|--------|-------------|
 | `metadata.read` | `path`, `cueIndex?` | 读取单个曲目的元数据标签与音频技术信息；优先读取宿主内存缓存，若缓存缺失或未收录标题标签则回退至直接读取音频文件；文件无法打开或读取失败时以 `OPERATION_FAILED` 失败；字段值中的非法 UTF-8 字符替换为 U+FFFD，字段名包含非法 UTF-8 的项自动省略且不修改原文件 |
 | `metadata.readRaw` | `path`, `cueIndex?` | 绕过宿主内存缓存，直接从物理文件读取单个曲目的元数据标签与技术信息；返回结构同 `metadata.read` 且额外附带 `source: "file"` 字段；文件读取失败以 `OPERATION_FAILED` 失败 |
 | `metadata.readBatch` | `paths` | 批量读取多个曲目的扁平元数据字段，按输入路径顺序逐行返回；单项路径读取失败在对应行报告自身错误而不导致整次调用失败；在宿主主线程同步执行（大量文件推荐改用 `metadata.probeBatchAsync`）；UTF-8 字符处理规则同 `metadata.read` |
+| `metadata.identity` | `path`, `cueIndex?` | 按媒体读取路径策略查询曲目对应原生媒体文件的身份。 |
 | `rating.get` | `path`, `cueIndex?` | 获取指定曲目的星级评分（范围 0 至 5；优先读取 foo_playcount 维护的 1 至 5 星 %rating% 统计数据，未找到时回退读取音频文件的 RATING 标签并夹取至 0 至 5 区间；0 表示未评分；无法读取标签或文件不存在时不返回错误，统一视作无 RATING 标签处理） |
 | `artwork.getForTrack` | `path`, `type?` | 通过专辑封面管理器读取曲目封面（包含内嵌封面及所在目录的外置封面文件）并获取尺寸；从 PNG 头信息解析 `width` 与 `height`（其他格式返回 `0`）；`file-relative://` 路径以 `INVALID_PATH` 拒绝；仅在云端、尚未下载的文件不会被打开，按无图片处理 |
 | `artwork.getCurrent` | `type?` | 读取当前正在播放曲目的封面图片；按顺序尝试三种检索策略并在 `source` 中指明胜出源；未在播放时返回 `available: false`（`reason: "no_track"`），均未查得图片时返回 `reason: "not_found"`；仅在云端、尚未下载的文件不会被打开，基于文件的检索视为无图片 |
@@ -323,7 +324,7 @@ npm start
 | Action | 参数 | 说明 |
 |--------|--------|-------------|
 | `metadata.write` | `path`, `tags`, `cueIndex?` | 将针对单个曲目的标签写入请求加入后台队列并立即返回；foobar2000 宿主在后台线程执行物理文件写入，并在操作完成后向所有窗口广播 `metadata:writeComplete` 事件；请求中未包含有效待写标签时直接返回成功且不派发后台写入；目标为 WAV 且写入后标签含非 ASCII 文本时以 `NOT_SUPPORTED` 拒绝（`details.reason` 为 `wavInfoNonAscii`）且不改动文件，因为 foobar2000 在 WAV 的 RIFF INFO 块里只存 ASCII，其余字符一律写成 `?` |
-| `metadata.writeBatch` | `items` | 批量排入多个曲目的标签写入请求，并报告成功入队的数量；已派发的单项写入在完成后独立广播 `metadata:writeComplete` 事件（不存在的文件在此阶段亦计入入队成功）；若有条目参数非法则整次调用以 `OPERATION_FAILED` 失败（错误详情附带 `successCount`、`failCount` 与 `errors` 列表，其他合法项照常入队） |
+| `metadata.writeBatch` | `items` | 批量排入多个曲目的标签写入请求，并报告成功入队的数量；已派发的单项写入在完成后独立广播 `metadata:writeComplete` 事件（不存在的文件在此阶段亦计入入队成功）；若有条目参数非法则整次调用以 `OPERATION_FAILED` 失败（错误详情附带 `successCount`、`failCount` 与 `errors` 列表，其他合法项照常入队）；回执（包括部分失败的错误回执）与本批全部完成事件共用同一个 `requestId` |
 | `rating.set` | `path?`, `rating`, `cueIndex?` | 设置指定曲目的星级评分（优先通过 foo_playcount 上下文菜单写入统计，菜单不可用时回退写入音频文件的 RATING 标签；省略 path 时优先为正在播放的曲目评分，无播放曲目时回退为当前活动播放列表的选中项，两者均无时返回 NO_ACTIVE_ITEM 失败）；回退写标签时，目标是含非 ASCII 标签文本的 WAV 则与 `metadata.write` 一样以 `NOT_SUPPORTED` 失败 |
 | `metadata.embedArtwork` | `path`, `imageData`, `type?`, `target?`, `filename?` | 将封面图片写入音频文件内嵌标签、写为同目录下的独立图片文件或两处同时写入；指定单个目标时返回该目标的写入结果；同时指定两处目标时在 `results` 下分别列出各自状态，仅当两处写入均失败时整次调用以 `OPERATION_FAILED` 失败 |
 | `metadata.removeEmbeddedArt` | `path`, `type?`, `removeAll?` | 从音频文件中移除内嵌的封面图片；支持按 `type` 删除指定类型，或在省略 `type` 及设置 `removeAll: true` 时全量清空；音频格式不受专辑封面编辑器支持时以 `NOT_SUPPORTED` 失败 |

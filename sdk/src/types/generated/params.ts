@@ -495,6 +495,17 @@ export interface ClipboardWriteHTMLParams {
 }
 
 /**
+ * Parameters for `cloud.getStates`.
+ * Report the local/cloud state of media paths from file attributes alone. No file is opened and no content is read, so an online-only OneDrive placeholder is reported with `placeholder: true` instead of being hydrated; this is a metadata read, not a content read. Give exactly one of `paths` or `directory`: `paths` reports one entry per path in the given order, while `directory` reports the immediate children of one directory and does not recurse. A path that does not exist is reported with `exists: false` rather than failing the call; in `directory` mode a missing or non-directory path fails the call.
+ */
+export interface CloudGetStatesParams {
+    /** Media paths to inspect, at most 256. A path that does not exist is a success with `exists: false`; `file://`, `file-relative://` and a `|subsong:N` suffix are accepted and resolve to the underlying file. */
+    paths?: string[];
+    /** Directory whose immediate children are inspected, in native path form. A directory that does not exist fails with `NOT_FOUND`; a path that is not a directory fails with `INVALID_PATH`. */
+    directory?: string;
+}
+
+/**
  * Parameters for `config.export`.
  * Read the whole store both as a map and as one JSON text.
  */
@@ -2728,6 +2739,20 @@ export interface MetadataEmbedArtworkParams {
 }
 
 /**
+ * Parameters for `metadata.identity`.
+ * Read the filesystem identity of a track's native media file under the media-read path policy. `NOT_FOUND` means the file or its containing path does not exist. Other failures to resolve, open or query the file use `OPERATION_FAILED`.
+ */
+export interface MetadataIdentityParams {
+    /** Track path. A `|subsong:N` suffix or a trailing `#N` can select a subsong. */
+    path: string;
+    /**
+     * Subsong index that wins over a suffix in `path`; negative values are ignored.
+     * @default -1
+     */
+    cueIndex?: number;
+}
+
+/**
  * Parameters for `metadata.probeBatchAsync`.
  * Start a cancellable batch probe on a worker thread and return a receipt at once. The results arrive in batches on `metadata:probeProgress`, every 64 results or 100 ms, followed by one `metadata:probeComplete`. Each result says whether its info came from the cache or the disk, and a failure is classified as `not-found`, `unsupported-format` or `read-error`. Values and field names use the same UTF-8 handling as `metadata.read`.
  */
@@ -2858,7 +2883,7 @@ export interface MetadataWriteParams {
 
 /**
  * Parameters for `metadata.writeBatch`.
- * Queue one `metadata.write` per entry and report how many went through. A dispatched write reports its own outcome later as `metadata:writeComplete`, so a file that does not exist still counts here. When any entry fails, the call fails with `OPERATION_FAILED` and the failure carries the same `successCount`, `failCount` and `errors`; the other entries were queued all the same.
+ * Queue one `metadata.write` per entry and report how many went through. A dispatched write reports its own outcome later as `metadata:writeComplete`, so a file that does not exist still counts here. When any entry fails, the call fails with `OPERATION_FAILED` and the failure carries the same `successCount`, `failCount` and `errors`; the other entries were queued all the same. The success or partial-failure response and all completion events for this batch share one `requestId`.
  */
 export interface MetadataWriteBatchParams {
     /** Writes to queue, one per entry, in this order. An entry that is not an object, holds a member other than `path`, `tags` and `cueIndex`, or has no string `path` fails the call with `INVALID_PARAMS`. Every path is checked before anything starts; one refused path, an empty string included, fails the whole call with `PERMISSION_DENIED`. An empty list is an empty success. */
@@ -5820,6 +5845,7 @@ export interface ApiParamsMap {
     "clipboard.write": ClipboardWriteParams;
     "clipboard.writeFiles": ClipboardWriteFilesParams;
     "clipboard.writeHTML": ClipboardWriteHTMLParams;
+    "cloud.getStates": CloudGetStatesParams;
     "config.export": ConfigExportParams;
     "config.get": ConfigGetParams;
     "config.getActiveDspPreset": ConfigGetActiveDspPresetParams;
@@ -6004,6 +6030,7 @@ export interface ApiParamsMap {
     "menu.showNativePopup": MenuShowNativePopupParams;
     "metadata.cancelProbe": MetadataCancelProbeParams;
     "metadata.embedArtwork": MetadataEmbedArtworkParams;
+    "metadata.identity": MetadataIdentityParams;
     "metadata.probeBatchAsync": MetadataProbeBatchAsyncParams;
     "metadata.read": MetadataReadParams;
     "metadata.readBatch": MetadataReadBatchParams;

@@ -713,6 +713,8 @@ Sent to every window.
 | `code` | `integer` | foobar2000's completion code: `0` success, `1` aborted, `2` errors. |
 | `success` | `boolean` | `true` when `code` is `0`. |
 | `status` | `"success" \| "aborted" \| "error"` | `success`, `aborted` or `error`, after `code`. |
+| `requestId` | `integer` | The write request's ID from its receipt. All dispatched entries in a batch share this ID. |
+| `handlePath` | `string` | Actual path of the foobar2000 handle targeted by the write. |
 <!-- api-schema:end -->
 
 ## metadb events

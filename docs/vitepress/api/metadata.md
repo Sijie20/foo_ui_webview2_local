@@ -76,6 +76,30 @@ await fb2k.invoke('metadata.embedArtwork', {
 });
 ```
 
+### metadata.identity
+
+<!-- api-schema:begin metadata.identity -->
+Read the filesystem identity of a track's native media file under the media-read path policy. `NOT_FOUND` means the file or its containing path does not exist. Other failures to resolve, open or query the file use `OPERATION_FAILED`.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | Yes | Track path. A `\|subsong:N` suffix or a trailing `#N` can select a subsong. Must not be empty. |
+| `cueIndex` | `integer` | No | Subsong index that wins over a suffix in `path`; negative values are ignored. At most `4294967295`. Default: `-1`. |
+
+**Returns**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `path` | `string` | The input path, including any suffix. |
+| `canonicalPath` | `string` | The foobar2000 canonical path supplied to the host's handle creation. |
+| `handlePath` | `string` | Actual path stored in the foobar2000 handle. |
+| `subsong` | `integer` | Subsong index used to create the handle. Defaults to 0. |
+| `volumeSerial` | `string` | Volume serial number as 16 upper-case hexadecimal digits. |
+| `fileId` | `string` | The 128-bit file ID as 32 upper-case hexadecimal digits, in Windows identifier byte order. |
+
+`success` is `true` on success. On failure the response is `{ success: false, error, code }`; see [Error codes](../reference/errors.md) for `code`.
+<!-- api-schema:end -->
+
 ### metadata.probeBatchAsync
 
 Starts a cancellable batch metadata probe; file operations run asynchronously on a worker thread.
@@ -285,6 +309,7 @@ Same as `metadata.removeTag`, under the name older callers use; its completion e
 | `dispatched` | `boolean` | `true` when the removal was dispatched; absent for an empty `tags`. |
 | `subsong` | `integer` | Subsong the removal targets; present when dispatched. |
 | `note` | `string` | A reminder that the outcome arrives as `metadata:writeComplete`; present when dispatched. |
+| `requestId` | `integer` | Process-wide request ID. Returned even when `tags` is empty. |
 
 `success` is `true` on success. On failure the response is `{ success: false, error, code }`; see [Error codes](../reference/errors.md) for `code`.
 <!-- api-schema:end -->
@@ -317,6 +342,7 @@ Queue the removal of tags from one track and return at once. The outcome arrives
 | `dispatched` | `boolean` | `true` when the removal was dispatched; absent for an empty `tags`. |
 | `subsong` | `integer` | Subsong the removal targets; present when dispatched. |
 | `note` | `string` | A reminder that the outcome arrives as `metadata:writeComplete`; present when dispatched. |
+| `requestId` | `integer` | Process-wide request ID. Returned even when `tags` is empty. |
 
 `success` is `true` on success. On failure the response is `{ success: false, error, code }`; see [Error codes](../reference/errors.md) for `code`.
 <!-- api-schema:end -->
@@ -351,6 +377,7 @@ Queue a tag write to one track and return at once. foobar2000 writes the file in
 | `tagsApplied` | `Record<string, any>` | Every tag queued, keyed by its upper-case name: the string, number or non-empty string array given for a write, `null` for a removal (including an empty array). Present when dispatched. |
 | `tagsSet` | `integer` | Number of tag fields set, not the number of values; present when dispatched. |
 | `tagsRemoved` | `integer` | Number of tag fields removed, including those given as empty arrays; present when dispatched. |
+| `requestId` | `integer` | Process-wide request ID, increasing from 1. Returned even when there is nothing to write. |
 
 `success` is `true` on success. On failure the response is `{ success: false, error, code }`; see [Error codes](../reference/errors.md) for `code`.
 <!-- api-schema:end -->
@@ -369,7 +396,7 @@ await fb2k.invoke('metadata.write', {
 ### metadata.writeBatch
 
 <!-- api-schema:begin metadata.writeBatch -->
-Queue one `metadata.write` per entry and report how many went through. A dispatched write reports its own outcome later as `metadata:writeComplete`, so a file that does not exist still counts here. When any entry fails, the call fails with `OPERATION_FAILED` and the failure carries the same `successCount`, `failCount` and `errors`; the other entries were queued all the same.
+Queue one `metadata.write` per entry and report how many went through. A dispatched write reports its own outcome later as `metadata:writeComplete`, so a file that does not exist still counts here. When any entry fails, the call fails with `OPERATION_FAILED` and the failure carries the same `successCount`, `failCount` and `errors`; the other entries were queued all the same. The success or partial-failure response and all completion events for this batch share one `requestId`.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -387,6 +414,7 @@ Queue one `metadata.write` per entry and report how many went through. A dispatc
 | `errors` | `MetadataWriteBatchError[]` | The failed entries; always empty on success, since a failed entry fails the call. |
 | `errors[].path` | `string` | The entry's path. |
 | `errors[].error` | `string` | Why it failed: `Missing tags`, or the error `metadata.write` gives for that path. |
+| `requestId` | `integer` | Process-wide request ID, shared by all completion events for this batch. |
 
 `success` is `true` on success. On failure the response is `{ success: false, error, code }`; see [Error codes](../reference/errors.md) for `code`.
 <!-- api-schema:end -->

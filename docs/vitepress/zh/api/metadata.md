@@ -157,6 +157,30 @@ batch.results.forEach(r => {
 });
 ```
 
+### metadata.identity
+
+<!-- api-schema:begin metadata.identity -->
+按媒体读取路径策略查询曲目对应原生媒体文件的身份。文件或所在路径不存在时返回 `NOT_FOUND`，其他路径解析、打开或查询失败返回 `OPERATION_FAILED`
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `path` | `string` | 是 | 曲目路径。可用 `\|subsong:N` 后缀或末尾的 `#N` 指定子曲目不能为空。 |
+| `cueIndex` | `integer` | 否 | 显式指定的子曲目序号（优先级高于 `path` 中的后缀）；传入负数时忽略不大于 `4294967295`。默认 `-1`。 |
+
+**返回值**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `path` | `string` | 请求中的原样路径，包含所传后缀 |
+| `canonicalPath` | `string` | 用于创建宿主曲目句柄的 foobar2000 规范路径 |
+| `handlePath` | `string` | foobar2000 曲目句柄中的实际路径 |
+| `subsong` | `integer` | 创建曲目句柄时使用的子曲目序号，默认值为 0 |
+| `volumeSerial` | `string` | 卷序列号，16 位大写十六进制字符 |
+| `fileId` | `string` | 128 位文件 ID，按 Windows 标识符字节顺序编码为 32 位大写十六进制字符 |
+
+成功时 `success` 为 `true`；失败时返回 `{ success: false, error, code }`，`code` 见[错误码](../reference/errors.md)。
+<!-- api-schema:end -->
+
 ### metadata.probeBatchAsync
 
 可取消的批量元数据探测；读盘在 worker 线程，不阻塞 UI。
@@ -242,6 +266,7 @@ const { cancelled } = res;
 | `tagsApplied` | `Record<string, any>` | 排入写入队列的全部标签字典（键名为大写标签名，值为字符串、数字或字符串数组，删除项记为 `null`）；派发时返回 |
 | `tagsSet` | `integer` | 本次成功设置的标签字段数量（按字段数而非值数统计）；派发时返回 |
 | `tagsRemoved` | `integer` | 本次成功删除的标签字段数量（包含传入空数组的项）；派发时返回 |
+| `requestId` | `integer` | 进程内从 1 递增的请求编号。无待写内容时也返回 |
 
 成功时 `success` 为 `true`；失败时返回 `{ success: false, error, code }`，`code` 见[错误码](../reference/errors.md)。
 <!-- api-schema:end -->
@@ -286,6 +311,7 @@ await fb2k.invoke('metadata.write', {
 | `dispatched` | `boolean` | 删除请求是否已成功派发至后台线程；`tags` 为空时缺省 |
 | `subsong` | `integer` | 删除操作所针对的目标子曲目序号；派发时返回 |
 | `note` | `string` | 状态提示说明（提示最终删除结果由 `metadata:writeComplete` 广播） |
+| `requestId` | `integer` | 进程内的请求编号。`tags` 为空时也返回 |
 
 成功时 `success` 为 `true`；失败时返回 `{ success: false, error, code }`，`code` 见[错误码](../reference/errors.md)。
 <!-- api-schema:end -->
@@ -308,7 +334,7 @@ await fb2k.invoke('metadata.removeTag', {
 批量写入多个文件的元数据。逐个调用 `metadata.write`。
 
 <!-- api-schema:begin metadata.writeBatch -->
-批量排入多个曲目的标签写入请求，并报告成功入队的数量；已派发的单项写入在完成后独立广播 `metadata:writeComplete` 事件（不存在的文件在此阶段亦计入入队成功）；若有条目参数非法则整次调用以 `OPERATION_FAILED` 失败（错误详情附带 `successCount`、`failCount` 与 `errors` 列表，其他合法项照常入队）
+批量排入多个曲目的标签写入请求，并报告成功入队的数量；已派发的单项写入在完成后独立广播 `metadata:writeComplete` 事件（不存在的文件在此阶段亦计入入队成功）；若有条目参数非法则整次调用以 `OPERATION_FAILED` 失败（错误详情附带 `successCount`、`failCount` 与 `errors` 列表，其他合法项照常入队）；回执（包括部分失败的错误回执）与本批全部完成事件共用同一个 `requestId`
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
@@ -326,6 +352,7 @@ await fb2k.invoke('metadata.removeTag', {
 | `errors` | `MetadataWriteBatchError[]` | 派发失败的条目详情列表（整批成功时固定为空数组） |
 | `errors[].path` | `string` | 失败条目的曲目路径 |
 | `errors[].error` | `string` | 失败原因说明 |
+| `requestId` | `integer` | 进程内的请求编号，本批次的所有完成事件共用 |
 
 成功时 `success` 为 `true`；失败时返回 `{ success: false, error, code }`，`code` 见[错误码](../reference/errors.md)。
 <!-- api-schema:end -->
@@ -439,6 +466,7 @@ await fb2k.invoke('metadata.embedArtwork', {
 | `dispatched` | `boolean` | 删除请求是否已成功派发至后台线程；`tags` 为空时缺省 |
 | `subsong` | `integer` | 删除操作所针对的目标子曲目序号；派发时返回 |
 | `note` | `string` | 状态提示说明（提示最终删除结果由 `metadata:writeComplete` 广播） |
+| `requestId` | `integer` | 进程内的请求编号。`tags` 为空时也返回 |
 
 成功时 `success` 为 `true`；失败时返回 `{ success: false, error, code }`，`code` 见[错误码](../reference/errors.md)。
 <!-- api-schema:end -->

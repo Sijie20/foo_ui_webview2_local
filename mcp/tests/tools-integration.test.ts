@@ -59,9 +59,9 @@ describe("工具面", () => {
         ]);
     });
 
-    it("共 93 个 action，每个宿主方法只属于一个工具", () => {
+    it("共 94 个 action，每个宿主方法只属于一个工具", () => {
         const all = bridgeTools.flatMap((t) => Object.keys(t.actions));
-        expect(all).toHaveLength(93);
+        expect(all).toHaveLength(94);
         expect(new Set(all).size).toBe(all.length);
     });
 

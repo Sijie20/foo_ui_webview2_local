@@ -3,13 +3,14 @@
 页面经 `fb2k.invoke('namespace.method', params)` 调用的全部方法，按命名空间列出。事件见[事件 API](./events.md)。SDK 把这些方法封装为 `fb.*`，见 [SDK 命名空间](../sdk/namespaces.md)。
 
 <!-- api-schema:begin index:namespaces -->
-共 471 个方法，分属 42 个命名空间。
+共 473 个方法，分属 43 个命名空间。
 
 | 命名空间 | 方法数 | 所在页面 |
 | --- | ---: | --- |
 | `artwork` | 13 | [Artwork API](./artwork.md) |
 | `audio` | 17 | [Audio 音频 API](./audio.md) |
 | `clipboard` | 4 | [Clipboard 剪贴板 API](./clipboard.md) |
+| `cloud` | 1 | — |
 | `config` | 29 | [Config API](./config.md) |
 | `console` | 3 | [Console 控制台 API](./console.md) |
 | `cursor` | 2 | [Cursor API](./cursor.md) |
@@ -28,7 +29,7 @@
 | `lyrics` | 3 | [Lyrics 歌词 API](./lyrics.md) |
 | `media` | 2 | [Media 媒体 API](./media.md) |
 | `menu` | 8 | [Menu 菜单 API](./menu.md) |
-| `metadata` | 12 | [Metadata 元数据 API](./metadata.md) |
+| `metadata` | 13 | [Metadata 元数据 API](./metadata.md) |
 | `misc` | 9 | [Misc 杂项 API](./misc.md) |
 | `output` | 3 | [Output 输出设备 API](./output.md) |
 | `panel` | 2 | [Panel 面板 API](./panel.md) |

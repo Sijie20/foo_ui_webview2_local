@@ -11,7 +11,7 @@ Grouping by what the methods do keeps each tool's [annotations](https://modelcon
 Set `FB2K_READ_ONLY` to `1` or `true` to register only the read-only tools.
 
 <!-- mcp-tools:begin -->
-**10 bridge tools** covering 93 host methods, grouped by namespace and by what they change; the page tools follow below. Each tool takes an `action`, the host method to call, and that method's parameters beside it. A parameter marked `?` is optional; types, ranges and defaults are in each tool's input schema.
+**10 bridge tools** covering 94 host methods, grouped by namespace and by what they change; the page tools follow below. Each tool takes an `action`, the host method to call, and that method's parameters beside it. A parameter marked `?` is optional; types, ranges and defaults are in each tool's input schema.
 
 ### `fb2k_playback_read`
 
@@ -169,15 +169,16 @@ Change the playback queue: add playlist rows or files, insert tracks to play nex
 
 ### `fb2k_track_read`
 
-read-only · 6 actions
+read-only · 7 actions
 
-Read track files: tags and technical info from the library cache or straight from the file, the tags of several files at once, a track's rating, and its cover art. Changes nothing.
+Read track files: tags and technical info from the library cache or straight from the file, the tags of several files at once, a track's rating, cover art, and native file identity. Changes nothing.
 
 | Action | Params | Description |
 |--------|--------|-------------|
 | [`metadata.read`](../api/metadata.md#metadata-read) | `path`, `cueIndex?` | Read the tags and technical info of one track. |
 | [`metadata.readRaw`](../api/metadata.md#metadata-readraw) | `path`, `cueIndex?` | Read the tags and technical info of one track straight from the file, bypassing the host's cache; the result is that of `metadata.read` plus `source`. |
 | [`metadata.readBatch`](../api/metadata.md#metadata-readbatch) | `paths` | Read the flat fields of several tracks, one row per path. |
+| [`metadata.identity`](../api/metadata.md#metadata-identity) | `path`, `cueIndex?` | Read the filesystem identity of a track's native media file under the media-read path policy. |
 | [`rating.get`](../api/rating.md#rating-get) | `path`, `cueIndex?` | Read a track's rating from 0 to 5: a foo_playcount `%rating%` between 1 and 5 wins, otherwise the file's `RATING` tag clamped to 0..5. |
 | [`artwork.getForTrack`](../api/artwork.md#artwork-getfortrack) | `path`, `type?` | Read a picture through the album art manager, which also finds folder covers, and measure it. |
 | [`artwork.getCurrent`](../api/artwork.md#artwork-getcurrent) | `type?` | Read the picture of the playing track. |

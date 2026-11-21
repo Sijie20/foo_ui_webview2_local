@@ -12,7 +12,7 @@ import type { JsonValue } from '../json.js';
 
 import type { ApiFailure } from '../responses.js';
 
-import type { AdvancedConfigItem, AlbumInfo, ArtistInfo, ArtworkAvailableEntry, ArtworkBatchRow, ArtworkFolderImage, ArtworkUrlRow, ConfigComponentInfo, ConfigDspPreset, ConfigLibraryFilePattern, ConfigOutputDevice, ConfigPreferencesPage, ContainerAttachment, ContainerChapter, ContainerTrack, DiscoveryComponentInfo, DiscoveryContextMenuCommand, DiscoveryContextMenuTreeNode, DiscoveryDspEntryInfo, DiscoveryInputFormatType, DiscoveryMainMenuCommand, DiscoveryMainMenuGroup, DiscoveryOutputDeviceEntry, DiscoveryPreferencePageInfo, DiscoverySearchResult, DiscoveryServiceCounts, DiscoveryUIElementInfo, DspAvailableEntry, DspChainEntry, DspPresetEntry, EvalBatchRow, EvalFieldsBatchRow, JitNativeContextDetail, JitNativeEntry, JitNativeTrack, JitSessionDiscovery, JitSessionOperation, JitSessionSnapshot, KeyboardHotkey, LibraryDirectoryNodeInfo, LibraryRootInfo, LibraryTrack, LibraryTrackPartial, LibraryValueCount, MenuTreeNode, MetadataReadBatchItem, MetadataWriteBatchError, OutputDevice, OutputEntry, PanelConfig, PcmDecodeState, PcmRuntimeState, PcmStreamState, PlaycountRow, PlaylistColumnDefinition, PlaylistGroupRun, PlaylistInfo, PlaylistTrack, PlaylistTrackPartial, PortInfo, QueueItem, RecentLibraryTrack, ReplayGainTrackInfo, SpectrumDebugSubscription, SpectrumDebugTarget, SystemApiInfo, SystemPluginInfo, Track, TrackTechnicalInfo, TrayMenuItem, WindowBackdropPolicyState, WindowInfo, WindowPopupBehaviorState } from './schema-types.js';
+import type { AdvancedConfigItem, AlbumInfo, ArtistInfo, ArtworkAvailableEntry, ArtworkBatchRow, ArtworkFolderImage, ArtworkUrlRow, CloudPathState, ConfigComponentInfo, ConfigDspPreset, ConfigLibraryFilePattern, ConfigOutputDevice, ConfigPreferencesPage, ContainerAttachment, ContainerChapter, ContainerTrack, DiscoveryComponentInfo, DiscoveryContextMenuCommand, DiscoveryContextMenuTreeNode, DiscoveryDspEntryInfo, DiscoveryInputFormatType, DiscoveryMainMenuCommand, DiscoveryMainMenuGroup, DiscoveryOutputDeviceEntry, DiscoveryPreferencePageInfo, DiscoverySearchResult, DiscoveryServiceCounts, DiscoveryUIElementInfo, DspAvailableEntry, DspChainEntry, DspPresetEntry, EvalBatchRow, EvalFieldsBatchRow, JitNativeContextDetail, JitNativeEntry, JitNativeTrack, JitSessionDiscovery, JitSessionOperation, JitSessionSnapshot, KeyboardHotkey, LibraryDirectoryNodeInfo, LibraryRootInfo, LibraryTrack, LibraryTrackPartial, LibraryValueCount, MenuTreeNode, MetadataReadBatchItem, MetadataWriteBatchError, OutputDevice, OutputEntry, PanelConfig, PcmDecodeState, PcmRuntimeState, PcmStreamState, PlaycountRow, PlaylistColumnDefinition, PlaylistGroupRun, PlaylistInfo, PlaylistTrack, PlaylistTrackPartial, PortInfo, QueueItem, RecentLibraryTrack, ReplayGainTrackInfo, SpectrumDebugSubscription, SpectrumDebugTarget, SystemApiInfo, SystemPluginInfo, Track, TrackTechnicalInfo, TrayMenuItem, WindowBackdropPolicyState, WindowInfo, WindowPopupBehaviorState } from './schema-types.js';
 
 /**
  * Successful response from `artwork.getAvailableArtwork`.
@@ -801,6 +801,21 @@ export interface ClipboardWriteHTMLSuccess {
  * Response from `clipboard.writeHTML`: `ClipboardWriteHTMLSuccess`, or `ApiFailure` when the call failed.
  */
 export type ClipboardWriteHTMLResponse = ClipboardWriteHTMLSuccess | ApiFailure;
+
+/**
+ * Successful response from `cloud.getStates`.
+ */
+export interface CloudGetStatesSuccess {
+    /** Always `true` here; a failed call resolves with `ApiFailure` instead. */
+    success: true;
+    /** One entry per requested path, or one entry per immediate child of `directory`; directory entries are sorted by `path`. */
+    states: CloudPathState[];
+}
+
+/**
+ * Response from `cloud.getStates`: `CloudGetStatesSuccess`, or `ApiFailure` when the call failed.
+ */
+export type CloudGetStatesResponse = CloudGetStatesSuccess | ApiFailure;
 
 /**
  * Successful response from `config.export`.
@@ -3978,6 +3993,31 @@ export interface MetadataEmbedArtworkSuccess {
 export type MetadataEmbedArtworkResponse = MetadataEmbedArtworkSuccess | ApiFailure;
 
 /**
+ * Successful response from `metadata.identity`.
+ */
+export interface MetadataIdentitySuccess {
+    /** Always `true` here; a failed call resolves with `ApiFailure` instead. */
+    success: true;
+    /** The input path, including any suffix. */
+    path: string;
+    /** The foobar2000 canonical path supplied to the host's handle creation. */
+    canonicalPath: string;
+    /** Actual path stored in the foobar2000 handle. */
+    handlePath: string;
+    /** Subsong index used to create the handle. Defaults to 0. */
+    subsong: number;
+    /** Volume serial number as 16 upper-case hexadecimal digits. */
+    volumeSerial: string;
+    /** The 128-bit file ID as 32 upper-case hexadecimal digits, in Windows identifier byte order. */
+    fileId: string;
+}
+
+/**
+ * Response from `metadata.identity`: `MetadataIdentitySuccess`, or `ApiFailure` when the call failed.
+ */
+export type MetadataIdentityResponse = MetadataIdentitySuccess | ApiFailure;
+
+/**
  * Successful response from `metadata.probeBatchAsync`.
  */
 export interface MetadataProbeBatchAsyncSuccess {
@@ -4107,6 +4147,8 @@ export interface MetadataRemoveFieldSuccess {
     subsong?: number;
     /** A reminder that the outcome arrives as `metadata:writeComplete`; present when dispatched. */
     note?: string;
+    /** Process-wide request ID. Returned even when `tags` is empty. */
+    requestId: number;
 }
 
 /**
@@ -4132,6 +4174,8 @@ export interface MetadataRemoveTagSuccess {
     subsong?: number;
     /** A reminder that the outcome arrives as `metadata:writeComplete`; present when dispatched. */
     note?: string;
+    /** Process-wide request ID. Returned even when `tags` is empty. */
+    requestId: number;
 }
 
 /**
@@ -4161,6 +4205,8 @@ export interface MetadataWriteSuccess {
     tagsSet?: number;
     /** Number of tag fields removed, including those given as empty arrays; present when dispatched. */
     tagsRemoved?: number;
+    /** Process-wide request ID, increasing from 1. Returned even when there is nothing to write. */
+    requestId: number;
 }
 
 /**
@@ -4180,6 +4226,8 @@ export interface MetadataWriteBatchSuccess {
     failCount: number;
     /** The failed entries; always empty on success, since a failed entry fails the call. */
     errors: MetadataWriteBatchError[];
+    /** Process-wide request ID, shared by all completion events for this batch. */
+    requestId: number;
 }
 
 /**
@@ -8683,6 +8731,7 @@ export interface ApiResponseMap {
     "clipboard.write": ClipboardWriteResponse;
     "clipboard.writeFiles": ClipboardWriteFilesResponse;
     "clipboard.writeHTML": ClipboardWriteHTMLResponse;
+    "cloud.getStates": CloudGetStatesResponse;
     "config.export": ConfigExportResponse;
     "config.get": ConfigGetResponse;
     "config.getActiveDspPreset": ConfigGetActiveDspPresetResponse;
@@ -8867,6 +8916,7 @@ export interface ApiResponseMap {
     "menu.showNativePopup": MenuShowNativePopupResponse;
     "metadata.cancelProbe": MetadataCancelProbeResponse;
     "metadata.embedArtwork": MetadataEmbedArtworkResponse;
+    "metadata.identity": MetadataIdentityResponse;
     "metadata.probeBatchAsync": MetadataProbeBatchAsyncResponse;
     "metadata.read": MetadataReadResponse;
     "metadata.readBatch": MetadataReadBatchResponse;

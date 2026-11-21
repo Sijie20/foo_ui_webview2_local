@@ -30,12 +30,14 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <format>
 #include <memory>
 #include <random>
 #include <set>
 #include <type_traits>
 #include <variant>
 #include <vector>
+#include <wil/resource.h>
 #include "core/WebViewContext.h"
 
 namespace {
@@ -427,6 +429,70 @@ static SubsongParseResult ParseSubsongIndex(const std::string &path,
   }
 }
 
+api::Result<md::IdentityResult> MetadataIdentity(const md::IdentityParams &p) {
+  try {
+    // Strip the path suffix independently so cueIndex can override it without changing the file.
+    const auto parsed = ParseSubsongIndex(p.path, -1);
+    const auto subsong = static_cast<t_uint32>(p.cueIndex >= 0 ? p.cueIndex : parsed.subsongIndex);
+
+    std::string nativePath;
+    if (p.path.find('\0') != std::string::npos ||
+        !SubsongUtils::TryResolveNativeMediaPath(parsed.cleanPath, nativePath)) {
+      return api::Fail("Failed to resolve native media path", ApiErrorCode::OPERATION_FAILED,
+                       {{"path", p.path}});
+    }
+
+    // Check the parsed track. The bridge's scalar path check only strips |subsong:N,
+    // so checking the input as given could authorize a different file for a #N path.
+    std::wstring pathError;
+    const auto trackPath = fb2k_paths::JoinSubsongPath(parsed.cleanPath, subsong);
+    if (!PathSecurity::Instance().ValidateMediaAccess(Utf8ToWide(trackPath), pathError)) {
+      return api::Fail(WideToUtf8(pathError), ApiErrorCode::PERMISSION_DENIED, {{"path", p.path}});
+    }
+
+    FILE_ID_INFO info{};
+    {
+      const auto widePath = Utf8ToWide(nativePath);
+      wil::unique_hfile file(::CreateFileW(widePath.c_str(), FILE_READ_ATTRIBUTES,
+                                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+      if (!file) {
+        const auto error = ::GetLastError();
+        const auto code = (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+                              ? ApiErrorCode::NOT_FOUND : ApiErrorCode::OPERATION_FAILED;
+        return api::Fail("Failed to open media file", code, {{"path", p.path}, {"win32Error", error}});
+      }
+      if (!::GetFileInformationByHandleEx(file.get(), FileIdInfo, &info, sizeof(info))) {
+        const auto error = ::GetLastError();
+        return api::Fail("Failed to read file identity", ApiErrorCode::OPERATION_FAILED,
+                         {{"path", p.path}, {"win32Error", error}});
+      }
+    }
+
+    pfc::string8 canonical;
+    filesystem::g_get_canonical_path(parsed.cleanPath.c_str(), canonical);
+    auto handle = metadb::get()->handle_create(canonical.c_str(), subsong);
+    if (!handle.is_valid()) {
+      return api::Fail("Failed to create track handle", ApiErrorCode::OPERATION_FAILED,
+                       {{"path", p.path}});
+    }
+
+    md::IdentityResult result;
+    result.path = p.path;
+    result.canonicalPath = canonical.c_str();
+    result.handlePath = handle->get_path();
+    result.subsong = subsong;
+    result.volumeSerial = std::format("{:016X}", info.VolumeSerialNumber);
+    result.fileId.reserve(32);
+    for (const auto byte : info.FileId.Identifier) {
+      result.fileId += std::format("{:02X}", static_cast<unsigned>(byte));
+    }
+    return result;
+  } catch (const std::exception &e) {
+    return api::Fail(e.what(), ApiErrorCode::OPERATION_FAILED, {{"path", p.path}});
+  }
+}
+
 // 标签值类型分发 — 按 JSON 类型分类到 set/remove
 static std::optional<api::Failure> ClassifyTagValue(
     const std::string &upperKey, const json &value,
@@ -671,6 +737,12 @@ static std::optional<api::Failure> CheckWavInfoSafe(const metadb_handle_ptr &han
   return api::tag_guard::Refusal(path, *field);
 }
 
+static std::atomic<uint64_t> s_writeRequestId{0};
+
+static std::int64_t NextWriteRequestId() {
+  return static_cast<std::int64_t>(s_writeRequestId.fetch_add(1, std::memory_order_relaxed) + 1);
+}
+
 // Async completion_notify wrapper (revised after crash analysis)
 //
 // DESIGN: We CANNOT block or pump messages on the main thread because:
@@ -682,9 +754,11 @@ static std::optional<api::Failure> CheckWavInfoSafe(const metadb_handle_ptr &han
 // so JS can observe the outcome.
 class AsyncWriteNotify : public completion_notify {
 public:
-  AsyncWriteNotify(std::string path, int subsong, std::string operation)
+  AsyncWriteNotify(std::string path, int subsong, std::string operation,
+                   std::int64_t requestId, std::string handlePath)
       : m_path(std::move(path)), m_subsong(subsong),
-        m_operation(std::move(operation)) {}
+        m_operation(std::move(operation)), m_requestId(requestId),
+        m_handlePath(std::move(handlePath)) {}
 
   void on_completion(unsigned code) override {
     const char* status = (code == 0) ? "success" :
@@ -703,6 +777,8 @@ public:
       payload.code = code;
       payload.success = code == 0;
       payload.status = status;
+      payload.requestId = m_requestId;
+      payload.handlePath = m_handlePath;
       api::emit::Broadcast<md::events::WriteComplete>(payload);
     } catch (...) {
       // Best-effort event broadcast; don't crash on failure
@@ -713,12 +789,15 @@ private:
   std::string m_path;
   int m_subsong;
   std::string m_operation;
+  std::int64_t m_requestId;
+  std::string m_handlePath;
 };
 
 // All of metadata.write. The handler, every writeBatch entry, the rating.set
 // tag fallback and the embedded lyrics target (through MetadataWriteTags) run
 // it, so the four report success and failure the same way.
-static std::variant<md::WriteResult, api::Failure> WriteTagsCore(const md::WriteParams &p) {
+static std::variant<md::WriteResult, api::Failure> WriteTagsCore(
+    const md::WriteParams &p, std::int64_t requestId = NextWriteRequestId()) {
   const std::string &path = p.path;
 
   try {
@@ -769,6 +848,7 @@ static std::variant<md::WriteResult, api::Failure> WriteTagsCore(const md::Write
       md::WriteResult nothing;
       nothing.path = path;
       nothing.note = "No tags to update";
+      nothing.requestId = requestId;
       return nothing;
     }
 
@@ -791,8 +871,9 @@ static std::variant<md::WriteResult, api::Failure> WriteTagsCore(const md::Write
     // Async completion with event notification
     // Cannot block main thread (deadlock) or pump messages (reentrant crash).
     // Instead: dispatch + notify JS via metadata:writeComplete event.
-    service_ptr_t<AsyncWriteNotify> notify =
-        fb2k::service_new<AsyncWriteNotify>(path, parsed.subsongIndex, "write");
+    std::string handlePath = handle->get_path();
+    service_ptr_t<AsyncWriteNotify> notify = fb2k::service_new<AsyncWriteNotify>(
+        path, parsed.subsongIndex, "write", requestId, handlePath);
 
     auto io = metadb_io_v2::get();
     // 静默写入：op_flag_silent (fb2k 2.0+) 完全抑制 UI；
@@ -809,12 +890,13 @@ static std::variant<md::WriteResult, api::Failure> WriteTagsCore(const md::Write
     md::WriteResult result;
     result.path = path;
     result.dispatched = true;
-    result.handlePath = handle->get_path();
+    result.handlePath = std::move(handlePath);
     result.subsong = parsed.subsongIndex;
     result.tagsApplied = std::move(appliedTags);
     result.tagsSet = static_cast<std::int64_t>(tagsToSet.size());
     result.tagsRemoved = static_cast<std::int64_t>(tagsToRemove.size());
     result.note = "Write dispatched. Listen for metadata:writeComplete event for final result.";
+    result.requestId = requestId;
     return result;
   } catch (const std::exception &e) {
     console::printf("metadata.write: Exception: %s", e.what());
@@ -833,6 +915,7 @@ api::Result<md::WriteResult> MetadataWrite(const md::WriteParams &p) {
 // metadata.writeBatch - Write metadata to multiple files
 //==========================================================================
 api::Result<md::WriteBatchResult> MetadataWriteBatch(const md::WriteBatchParams &p) {
+  const auto requestId = NextWriteRequestId();
   std::int64_t successCount = 0;
   std::vector<md::MetadataWriteBatchError> errors;
 
@@ -847,7 +930,7 @@ api::Result<md::WriteBatchResult> MetadataWriteBatch(const md::WriteBatchParams 
       single.path = item.path;
       single.tags = item.tags->get<std::map<std::string, json>>();
       single.cueIndex = item.cueIndex;
-      const auto written = WriteTagsCore(single);
+      const auto written = WriteTagsCore(single, requestId);
       if (const auto *failure = std::get_if<api::Failure>(&written)) {
         error = failure->error;
       }
@@ -872,12 +955,14 @@ api::Result<md::WriteBatchResult> MetadataWriteBatch(const md::WriteBatchParams 
                      ApiErrorCode::OPERATION_FAILED,
                      {{"successCount", successCount},
                       {"failCount", failCount},
-                      {"errors", api::results::Value(errors)}});
+                      {"errors", api::results::Value(errors)},
+                      {"requestId", requestId}});
   }
 
   md::WriteBatchResult result;
   result.successCount = successCount;
   result.failCount = 0;
+  result.requestId = requestId;
   return result;
 }
 
@@ -1084,6 +1169,7 @@ api::Result<R> RemoveTags(const std::string &path, const std::vector<std::string
     std::vector<std::string> tagsToRemove;
     R result;
     result.path = path;
+    result.requestId = NextWriteRequestId();
 
     for (std::string tagName : tags) {
       std::transform(tagName.begin(), tagName.end(), tagName.begin(),
@@ -1112,8 +1198,8 @@ api::Result<R> RemoveTags(const std::string &path, const std::vector<std::string
     handles.add_item(handle);
 
     // Async completion with event notification
-    service_ptr_t<AsyncWriteNotify> notify =
-        fb2k::service_new<AsyncWriteNotify>(path, parsed.subsongIndex, "removeTag");
+    service_ptr_t<AsyncWriteNotify> notify = fb2k::service_new<AsyncWriteNotify>(
+        path, parsed.subsongIndex, "removeTag", result.requestId, handle->get_path());
 
     auto io = metadb_io_v2::get();
     // 静默：在原有 delay_ui 基础上叠加 silent (fb2k 2.0+ 完全抑制 UI)。
@@ -2192,6 +2278,8 @@ void RegisterMetadataApi() {
 
   // metadata.readRaw - Read tags directly from file, bypassing metadb cache
   api::RegisterApi("metadata.readRaw", MetadataReadRaw);
+
+  api::RegisterApi("metadata.identity", MetadataIdentity);
 
   // metadata.readBatch - Batch read metadata from multiple files
   api::RegisterApi("metadata.readBatch", MetadataReadBatch);

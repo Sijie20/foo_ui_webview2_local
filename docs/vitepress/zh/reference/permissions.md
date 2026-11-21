@@ -9,10 +9,10 @@
 | --- | ---: | --- |
 | `Read` | 6 | 普通文件系统只读校验 |
 | `Write` | 1 | 严格写入目标（配置/临时目录策略） |
-| `MediaRead` | 53 | 媒体上下文只读校验 |
+| `MediaRead` | 55 | 媒体上下文只读校验 |
 | `MediaWrite` | 10 | 媒体上下文写校验 |
 | `FileWrite` | 11 | 通用文件写入（`file.*`） |
-| **合计** | **81** | **76 个唯一 API** |
+| **合计** | **83** | **77 个唯一 API** |
 <!-- api-schema:end -->
 
 ## 六级权限模型
@@ -104,7 +104,7 @@ if (result.success === false) {
 <!-- api-schema:end -->
 
 <!-- api-schema:begin permissions:MediaRead -->
-### MediaRead — 读取媒体文件（53 条）
+### MediaRead — 读取媒体文件（55 条）
 
 | API | 参数 | 数组 | 嵌套键 |
 | --- | --- | --- | --- |
@@ -123,6 +123,8 @@ if (result.success === false) {
 | `audio.decodePcm` | `path` | — | — |
 | `audio.generateFullWaveform` | `path` | — | — |
 | `clipboard.writeFiles` | `paths` | 是 | — |
+| `cloud.getStates` | `directory` | — | — |
+| `cloud.getStates` | `paths` | 是 | — |
 | `discovery.executeContextMenuByPath` | `trackPath` | — | — |
 | `jitQueue.enqueueNext` | `url` | — | — |
 | `jitQueue.playNow` | `url` | — | — |
